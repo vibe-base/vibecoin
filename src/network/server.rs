@@ -464,44 +464,74 @@ fn handle_connection(
         }
     }
 
-    // After connecting, check if the peer supports the new protocol
-    // For backward compatibility, we'll use a simple version check
-    let version_check_msg = "version_check\n";
-    println!("[NETWORK] Checking protocol version with {}", addr);
+    // After connecting, request the blockchain state
+    let getstate_msg = format_message(&Message::GetState);
+    println!("[NETWORK] Requesting blockchain state from {}", addr);
 
-    match stream.write_all(version_check_msg.as_bytes()) {
+    match stream.write_all(getstate_msg.as_bytes()) {
         Ok(_) => {
-            println!("[NETWORK] Sent version check to {}", addr);
+            println!("[NETWORK] Sent getstate request to {}", addr);
 
-            // Read response to see if peer supports new protocol
+            // Read response to see if peer supports the protocol
             let mut response = [0; 1024];
-            let supports_new_protocol = match stream.read(&mut response) {
+            match stream.read(&mut response) {
                 Ok(n) => {
                     let response_str = String::from_utf8_lossy(&response[0..n]);
-                    response_str.contains("version_check_ok")
+                    println!("[NETWORK] Received response from {}: {}", addr, response_str.trim());
+
+                    // Try to parse the response as a state message
+                    match parse_message(&response_str) {
+                        Ok(Message::State(state)) => {
+                            println!("[NETWORK] Received blockchain state from {}: height={}, hash={}",
+                                     addr, state.height, hex::encode(state.latest_hash));
+
+                            // Compare with our blockchain state
+                            if let Some(blockchain_ref) = &blockchain {
+                                if let Ok(blockchain) = blockchain_ref.lock() {
+                                    let our_state = blockchain.get_state_summary();
+
+                                    if state.height > our_state.height {
+                                        println!("[NETWORK] Peer {} has higher blockchain: {} vs our {}",
+                                                 addr, state.height, our_state.height);
+
+                                        // Request missing blocks
+                                        let start_height = our_state.height + 1;
+                                        let end_height = state.height;
+
+                                        let getblocks_msg = format_message(&Message::GetBlocks {
+                                            start_height,
+                                            end_height
+                                        });
+                                        println!("[NETWORK] Requesting blocks {} to {} from {}", start_height, end_height, addr);
+
+                                        if let Err(e) = stream.write_all(getblocks_msg.as_bytes()) {
+                                            println!("[NETWORK] Error sending getblocks to {}: {}", addr, e);
+                                        }
+                                    } else if state.height < our_state.height {
+                                        println!("[NETWORK] Peer {} has lower blockchain: {} vs our {}",
+                                                 addr, state.height, our_state.height);
+                                    } else {
+                                        println!("[NETWORK] Peer {} has same blockchain height: {}", addr, state.height);
+                                    }
+                                }
+                            }
+                        },
+                        Ok(_) => {
+                            println!("[NETWORK] Received non-state response from {}", addr);
+                        },
+                        Err(e) => {
+                            println!("[NETWORK] Error parsing state response from {}: {}", addr, e);
+                            println!("[NETWORK] Assuming legacy protocol for {}", addr);
+                        }
+                    }
                 },
-                Err(_) => false
-            };
-
-            // If peer supports new protocol, request blockchain state
-            if supports_new_protocol {
-                println!("[NETWORK] Peer {} supports new protocol", addr);
-
-                let getstate_msg = "getstate\n";
-                println!("[NETWORK] Requesting blockchain state from {}", addr);
-
-                if let Err(e) = stream.write_all(getstate_msg.as_bytes()) {
-                    println!("[NETWORK] Error sending getstate to {}: {}", addr, e);
-                    println!("[NETWORK] Error kind: {:?}", e.kind());
+                Err(e) => {
+                    println!("[NETWORK] Error reading response from {}: {}", addr, e);
                 }
-            } else {
-                println!("[NETWORK] Peer {} using legacy protocol", addr);
-                // For legacy protocol, we'll just continue with the connection
-                // and rely on block announcements
             }
         },
         Err(e) => {
-            println!("[NETWORK] Error sending version check to {}: {}", addr, e);
+            println!("[NETWORK] Error sending getstate to {}: {}", addr, e);
             println!("[NETWORK] Error kind: {:?}", e.kind());
             // Continue anyway, assuming legacy protocol
             println!("[NETWORK] Assuming legacy protocol for {}", addr);
@@ -722,12 +752,24 @@ fn handle_connection(
                                 println!("[NETWORK] Received newblock announcement from {}: {}", addr, hex::encode(hash));
 
                                 // Request the block if we don't have it
-                                // For now, we'll just send a message that we received the announcement
-                                // In a real implementation, we would check if we have the block and request it if not
-                                let msg = format!("Received newblock announcement for {}\n", hex::encode(hash));
-                                if let Err(e) = stream.write_all(msg.as_bytes()) {
-                                    println!("[NETWORK] Error sending newblock response to {}: {}", addr, e);
-                                    break;
+                                if let Some(blockchain_ref) = &blockchain {
+                                    if let Ok(blockchain) = blockchain_ref.lock() {
+                                        // Check if we already have this block
+                                        let have_block = blockchain.chain.iter().any(|b| b.hash == hash);
+
+                                        if !have_block {
+                                            // Request the block
+                                            let getblock_msg = format_message(&Message::GetBlock(hash));
+                                            println!("[NETWORK] Requesting block {} from {}", hex::encode(hash), addr);
+
+                                            if let Err(e) = stream.write_all(getblock_msg.as_bytes()) {
+                                                println!("[NETWORK] Error requesting block from {}: {}", addr, e);
+                                                break;
+                                            }
+                                        } else {
+                                            println!("[NETWORK] Already have block {}", hex::encode(hash));
+                                        }
+                                    }
                                 }
                             },
                             Message::NewTransaction(hash) => {
