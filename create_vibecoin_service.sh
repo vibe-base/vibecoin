@@ -11,12 +11,7 @@ fi
 
 echo "Creating VibeCoin systemd service..."
 
-# Create logs directory manually first
-mkdir -p /root/vibecoin/logs
-chown -R root:root /root/vibecoin/logs
-chmod 755 /root/vibecoin/logs
-
-# Create the systemd service file - simplified version
+# Create the systemd service file - simplified version with journald logging
 cat > /etc/systemd/system/vibecoin.service << 'EOF'
 [Unit]
 Description=VibeCoin Node
@@ -30,8 +25,10 @@ WorkingDirectory=/root/vibecoin
 ExecStart=/root/vibecoin/target/release/vibecoin
 Restart=on-failure
 RestartSec=5s
-StandardOutput=append:/root/vibecoin/logs/vibecoin.log
-StandardError=append:/root/vibecoin/logs/vibecoin-error.log
+
+# Let systemd handle the logging
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
