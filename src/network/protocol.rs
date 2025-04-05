@@ -4,6 +4,7 @@ use crate::ledger::block::Block;
 use crate::ledger::transaction::Transaction;
 use crate::ledger::state::BlockchainState;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 /// Network protocol message types
 #[derive(Debug, Clone)]
@@ -339,7 +340,7 @@ pub fn serialize_block(block: &Block) -> Vec<u8> {
 
         // Add signature
         data.push(1); // Signature is always present
-        let sig_ref: &[u8; 64] = &tx.signature;
+        let sig_ref: &[u8; 64] = tx.signature.as_ref();
         data.extend_from_slice(sig_ref);
     }
 
