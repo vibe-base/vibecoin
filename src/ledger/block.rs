@@ -14,6 +14,8 @@ pub struct Block {
     pub poh_proof: Option<Hash>,
     pub transactions: Arc<Vec<Transaction>>,
     pub hash: Hash,
+    pub slot_number: u64,           // The slot number this block belongs to
+    pub slot_leader: Option<Hash>,   // Public key of the slot leader
 }
 
 impl Block {
@@ -40,6 +42,8 @@ impl Block {
             poh_proof: None,
             transactions: Arc::new(transactions),
             hash: [0u8; 32],
+            slot_number: 0,           // Default to slot 0, will be set by miner
+            slot_leader: None,         // Will be set by miner
         };
 
         block.hash = block.calculate_hash();
@@ -79,6 +83,12 @@ impl Block {
         data.extend_from_slice(&self.previous_hash);
         data.extend_from_slice(&self.timestamp.to_le_bytes());
         data.extend_from_slice(&self.nonce.to_le_bytes());
+        data.extend_from_slice(&self.slot_number.to_le_bytes());
+
+        // Include slot leader if present
+        if let Some(leader) = self.slot_leader {
+            data.extend_from_slice(&leader);
+        }
 
         // Hash transactions efficiently
         for tx in self.transactions.iter() {
@@ -96,6 +106,12 @@ impl Block {
         data.extend_from_slice(&self.index.to_le_bytes());
         data.extend_from_slice(&self.previous_hash);
         data.extend_from_slice(&self.timestamp.to_le_bytes());
+        data.extend_from_slice(&self.slot_number.to_le_bytes());
+
+        // Include slot leader if present
+        if let Some(leader) = self.slot_leader {
+            data.extend_from_slice(&leader);
+        }
 
         // Use zero nonce to represent pre-mining state
         data.extend_from_slice(&0u64.to_le_bytes());
@@ -194,6 +210,8 @@ impl Block {
             poh_proof: self.poh_proof,
             transactions: Arc::clone(&self.transactions),
             hash: self.hash,
+            slot_number: self.slot_number,
+            slot_leader: self.slot_leader,
         }
     }
 }

@@ -30,17 +30,23 @@ pub fn meets_difficulty(hash: &Hash, difficulty: Difficulty) -> bool {
     true
 }
 
-// Mine a block with PoW and include a PoH segment
+// Mine a block with PoW and include a PoH segment during a slot
 pub fn mine_block(
     block: &mut Block,
     difficulty: Difficulty,
     poh: &mut ProofOfHistory,
+    slot_number: u64,
+    slot_leader: Hash,
     stop_signal: Option<Arc<AtomicBool>>,
     max_time: Option<Duration>,
 ) -> Result<(), VibecoinError> {
     let start_time = Instant::now();
     let mut nonce: u64 = 0;
     let poh_start_hash = poh.last_hash;
+
+    // Set slot information in the block
+    block.slot_number = slot_number;
+    block.slot_leader = Some(slot_leader);
 
     // Record the block's pre-mining hash in the PoH sequence
     // We use calculate_hash_without_nonce to get the state before mining
@@ -58,7 +64,8 @@ pub fn mine_block(
     // Include the PoH proof in the block
     block.poh_proof = Some(poh_end_hash);
 
-    println!("Mining block {} with difficulty {}", block.index, difficulty);
+    println!("Mining block {} in slot {} with difficulty {}", block.index, slot_number, difficulty);
+    println!("Slot leader: {}", hex::encode(slot_leader));
     println!("PoH segment: {} -> {}", hex::encode(poh_start_hash), hex::encode(poh_end_hash));
 
     // Start mining loop
@@ -119,10 +126,17 @@ pub fn verify_poh_proof(block: &Block, poh_state: &ProofOfHistory) -> Result<(),
             return Err(VibecoinError::InvalidProofOfWork);
         }
 
+        // Check that the block has a slot leader
+        if block.slot_leader.is_none() {
+            println!("PoH verification failed: Block has no slot leader");
+            return Err(VibecoinError::InvalidProofOfWork);
+        }
+
         // In a full implementation, we would:
         // 1. Verify the block's data was recorded in the PoH sequence
         // 2. Replay the PoH ticks to reach the expected proof hash
         // 3. Verify the timing of the PoH segment
+        // 4. Verify the slot leader was correctly selected
 
         // For demonstration, let's implement a simplified version of this verification
         let block_data_hash = block.calculate_hash_without_nonce(); // Hash without nonce to get pre-mining state
@@ -145,8 +159,13 @@ pub fn verify_poh_proof(block: &Block, poh_state: &ProofOfHistory) -> Result<(),
             return Err(VibecoinError::InvalidProofOfWork);
         }
 
+        println!("PoH verification for block in slot {} PASSED", block.slot_number);
         Ok(())
     } else {
+        // Genesis block doesn't need PoH proof
+        if block.index == 0 {
+            return Ok(());
+        }
         Err(VibecoinError::InvalidProofOfWork)
     }
 }
@@ -193,15 +212,21 @@ mod tests {
         // Mine with very low difficulty (should be fast)
         let difficulty = 1;
         let max_time = Some(Duration::from_secs(1));
+        let slot_number = 1;
+        let slot_leader = [1u8; 32];
 
         // Mine the block
-        mine_block(&mut block, difficulty, &mut poh, None, max_time)?;
+        mine_block(&mut block, difficulty, &mut poh, slot_number, slot_leader, None, max_time)?;
 
         // Verify the block meets the difficulty
         verify_pow(&block, difficulty)?;
 
         // Verify the block has a PoH proof
         assert!(block.poh_proof.is_some());
+
+        // Verify slot information
+        assert_eq!(block.slot_number, slot_number);
+        assert_eq!(block.slot_leader, Some(slot_leader));
 
         Ok(())
     }
