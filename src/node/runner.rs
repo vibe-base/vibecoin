@@ -133,8 +133,8 @@ impl Node {
 
             // Create the network server
             let mut server = NetworkServer::new(network_config);
-            println!("Network server initialized, listening on {}",
-                     config.p2p_listen_addr.unwrap_or_else(|| "0.0.0.0:8333".parse().unwrap()));
+            let listen_addr = config.p2p_listen_addr.unwrap_or_else(|| "0.0.0.0:8333".parse().unwrap());
+            println!("Network server initialized, listening on {}", listen_addr);
 
             // Set the blockchain reference
             let blockchain_ref = Arc::new(Mutex::new(blockchain.clone()));
