@@ -464,16 +464,47 @@ fn handle_connection(
         }
     }
 
-    // After connecting, request the peer's blockchain state
-    let getstate_msg = "getstate\n";
-    println!("[NETWORK] Requesting blockchain state from {}", addr);
+    // After connecting, check if the peer supports the new protocol
+    // For backward compatibility, we'll use a simple version check
+    let version_check_msg = "version_check\n";
+    println!("[NETWORK] Checking protocol version with {}", addr);
 
-    match stream.write_all(getstate_msg.as_bytes()) {
-        Ok(_) => println!("[NETWORK] Sent getstate request to {}", addr),
+    match stream.write_all(version_check_msg.as_bytes()) {
+        Ok(_) => {
+            println!("[NETWORK] Sent version check to {}", addr);
+
+            // Read response to see if peer supports new protocol
+            let mut response = [0; 1024];
+            let supports_new_protocol = match stream.read(&mut response) {
+                Ok(n) => {
+                    let response_str = String::from_utf8_lossy(&response[0..n]);
+                    response_str.contains("version_check_ok")
+                },
+                Err(_) => false
+            };
+
+            // If peer supports new protocol, request blockchain state
+            if supports_new_protocol {
+                println!("[NETWORK] Peer {} supports new protocol", addr);
+
+                let getstate_msg = "getstate\n";
+                println!("[NETWORK] Requesting blockchain state from {}", addr);
+
+                if let Err(e) = stream.write_all(getstate_msg.as_bytes()) {
+                    println!("[NETWORK] Error sending getstate to {}: {}", addr, e);
+                    println!("[NETWORK] Error kind: {:?}", e.kind());
+                }
+            } else {
+                println!("[NETWORK] Peer {} using legacy protocol", addr);
+                // For legacy protocol, we'll just continue with the connection
+                // and rely on block announcements
+            }
+        },
         Err(e) => {
-            println!("[NETWORK] Error sending getstate to {}: {}", addr, e);
+            println!("[NETWORK] Error sending version check to {}: {}", addr, e);
             println!("[NETWORK] Error kind: {:?}", e.kind());
-            return Err(VibecoinError::IoError(e));
+            // Continue anyway, assuming legacy protocol
+            println!("[NETWORK] Assuming legacy protocol for {}", addr);
         }
     }
 
@@ -491,6 +522,17 @@ fn handle_connection(
                 // Process message
                 let message_str = String::from_utf8_lossy(&buffer[0..n]);
                 println!("[NETWORK] Received from {}: {}", addr, message_str.trim());
+
+                // Handle special case for version_check message
+                if message_str.trim() == "version_check" {
+                    println!("[NETWORK] Received version check from {}", addr);
+                    let response = "version_check_ok\n";
+                    if let Err(e) = stream.write_all(response.as_bytes()) {
+                        println!("[NETWORK] Error sending version check response to {}: {}", addr, e);
+                        break;
+                    }
+                    continue;
+                }
 
                 // Parse the message
                 match parse_message(&message_str) {
@@ -631,10 +673,30 @@ fn handle_connection(
                     Err(e) => {
                         println!("[NETWORK] Error parsing message from {}: {}", addr, e);
 
-                        // Echo back the message for backward compatibility
-                        if let Err(e) = stream.write_all(&buffer[0..n]) {
-                            println!("[NETWORK] Error echoing message to {}: {}", addr, e);
-                            break;
+                        // For backward compatibility, handle legacy protocol messages
+                        if message_str.contains("block:") {
+                            println!("[NETWORK] Received legacy block message from {}", addr);
+                            // Handle legacy block message
+                            let response = "Received legacy block message\n";
+                            if let Err(e) = stream.write_all(response.as_bytes()) {
+                                println!("[NETWORK] Error sending legacy response to {}: {}", addr, e);
+                                break;
+                            }
+                        } else if message_str.contains("tx:") {
+                            println!("[NETWORK] Received legacy transaction message from {}", addr);
+                            // Handle legacy transaction message
+                            let response = "Received legacy transaction message\n";
+                            if let Err(e) = stream.write_all(response.as_bytes()) {
+                                println!("[NETWORK] Error sending legacy response to {}: {}", addr, e);
+                                break;
+                            }
+                        } else {
+                            // Echo back the message for backward compatibility
+                            println!("[NETWORK] Echoing unknown message back to {}", addr);
+                            if let Err(e) = stream.write_all(&buffer[0..n]) {
+                                println!("[NETWORK] Error echoing message to {}: {}", addr, e);
+                                break;
+                            }
                         }
                     }
                 }

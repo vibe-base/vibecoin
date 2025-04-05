@@ -10,8 +10,13 @@ pub struct BootstrapPeer {
 /// Returns a hardcoded list of known-good Vibecoin bootstrap peers
 pub fn get_bootstrap_peers() -> Vec<BootstrapPeer> {
     let raw_peers = vec![
+        // Try different ports for the seed nodes
         "155.138.225.82:8333",
+        "155.138.225.82:9000",
         "45.76.65.28:8333",
+        "45.76.65.28:9000",
+        "138.229.224.85:8333",    // New seed node
+        "138.229.224.85:9000",    // Try alternate port
         "127.0.0.1:9001",         // Optional: local testing
         "127.0.0.1:9002",         // Optional: local testing
     ];
