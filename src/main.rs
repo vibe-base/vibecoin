@@ -1,5 +1,4 @@
 use vibecoin::node::runner::{Node, NodeConfig};
-use vibecoin::types::error::VibecoinError;
 use std::{thread, time::Duration};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
@@ -179,7 +178,7 @@ fn main() {
 // Run the node with command handling
 fn run_node(config: NodeConfig, cmd_rx: Receiver<NodeCommand>, resp_tx: Sender<NodeResponse>) {
     // Create the node
-    let mut node = match Node::new(config) {
+    let node = match Node::new(config) {
         Ok(node) => node,
         Err(e) => {
             let _ = resp_tx.send(NodeResponse::Error(format!("Failed to create node: {}", e)));
