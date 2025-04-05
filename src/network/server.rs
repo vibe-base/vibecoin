@@ -9,6 +9,10 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use crate::network::protocol::{Message, parse_message, format_message};
+use crate::ledger::state::Blockchain;
+use crate::types::error::VibecoinError;
+use rand::Rng;
 
 /// Get all local IP addresses
 fn get_local_ips() -> HashSet<IpAddr> {
@@ -55,6 +59,8 @@ pub struct NetworkServer {
     config: NetworkConfig,
     /// Connected peers
     peers: Arc<Mutex<HashSet<SocketAddr>>>,
+    /// Blockchain reference
+    blockchain: Option<Arc<Mutex<Blockchain>>>,
 }
 
 impl NetworkServer {
@@ -63,7 +69,13 @@ impl NetworkServer {
         NetworkServer {
             config,
             peers: Arc::new(Mutex::new(HashSet::new())),
+            blockchain: None,
         }
+    }
+
+    /// Set the blockchain reference
+    pub fn set_blockchain(&mut self, blockchain: Arc<Mutex<Blockchain>>) {
+        self.blockchain = Some(blockchain);
     }
 
     /// Start the network server
@@ -87,6 +99,7 @@ impl NetworkServer {
         // Start listener thread
         let listen_addr = self.config.listen_addr;
         let peers = Arc::clone(&self.peers);
+        let blockchain = self.blockchain.clone();
         thread::spawn(move || {
             println!("Listener thread started on {}", listen_addr);
 
@@ -100,8 +113,9 @@ impl NetworkServer {
 
                         // Handle connection in a new thread
                         let peers_clone = Arc::clone(&peers);
+                        let blockchain_clone = blockchain.clone();
                         thread::spawn(move || {
-                            if let Err(e) = handle_connection(stream, addr, peers_clone) {
+                            if let Err(e) = handle_connection(stream, addr, peers_clone, blockchain_clone) {
                                 println!("Error handling connection from {}: {}", addr, e);
                             }
                         });
@@ -213,17 +227,37 @@ impl NetworkServer {
 
         println!("[NETWORK] Broadcasting block {} to {} peers", hex::encode(block_hash), peer_count);
 
-        // In a real implementation, we would actually send the block to all peers
-        // For now, we just log it
+        // Create the newblock message
+        let newblock_msg = format!("newblock:{}\n", hex::encode(block_hash));
+
+        // Send the message to all peers
+        let mut success_count = 0;
         for peer in peers.iter() {
-            println!("[NETWORK] Would send block {} to {}", hex::encode(block_hash), peer);
-            // In a real implementation, we would do something like:
-            // let msg = format!("block:{}", hex::encode(block_hash));
-            // send_message_to_peer(peer, msg);
+            println!("[NETWORK] Sending block {} to {}", hex::encode(block_hash), peer);
+
+            // Try to connect to the peer
+            match TcpStream::connect_timeout(peer, Duration::from_secs(5)) {
+                Ok(mut stream) => {
+                    // Send the newblock message
+                    match stream.write_all(newblock_msg.as_bytes()) {
+                        Ok(_) => {
+                            println!("[NETWORK] Successfully sent block {} to {}", hex::encode(block_hash), peer);
+                            success_count += 1;
+                        },
+                        Err(e) => {
+                            println!("[NETWORK] Error sending block to {}: {}", peer, e);
+                        }
+                    }
+                },
+                Err(e) => {
+                    println!("[NETWORK] Failed to connect to {} for block broadcast: {}", peer, e);
+                }
+            }
         }
 
-        println!("[NETWORK] Block {} broadcast complete", hex::encode(block_hash));
-        Ok(peer_count)
+        println!("[NETWORK] Block {} broadcast complete: {} of {} peers received",
+                 hex::encode(block_hash), success_count, peer_count);
+        Ok(success_count)
     }
 
     /// Broadcast a transaction to all peers
@@ -238,17 +272,37 @@ impl NetworkServer {
 
         println!("[NETWORK] Broadcasting transaction {} to {} peers", hex::encode(tx_hash), peer_count);
 
-        // In a real implementation, we would actually send the transaction to all peers
-        // For now, we just log it
+        // Create the newtx message
+        let newtx_msg = format!("newtx:{}\n", hex::encode(tx_hash));
+
+        // Send the message to all peers
+        let mut success_count = 0;
         for peer in peers.iter() {
-            println!("[NETWORK] Would send transaction {} to {}", hex::encode(tx_hash), peer);
-            // In a real implementation, we would do something like:
-            // let msg = format!("tx:{}", hex::encode(tx_hash));
-            // send_message_to_peer(peer, msg);
+            println!("[NETWORK] Sending transaction {} to {}", hex::encode(tx_hash), peer);
+
+            // Try to connect to the peer
+            match TcpStream::connect_timeout(peer, Duration::from_secs(5)) {
+                Ok(mut stream) => {
+                    // Send the newtx message
+                    match stream.write_all(newtx_msg.as_bytes()) {
+                        Ok(_) => {
+                            println!("[NETWORK] Successfully sent transaction {} to {}", hex::encode(tx_hash), peer);
+                            success_count += 1;
+                        },
+                        Err(e) => {
+                            println!("[NETWORK] Error sending transaction to {}: {}", peer, e);
+                        }
+                    }
+                },
+                Err(e) => {
+                    println!("[NETWORK] Failed to connect to {} for transaction broadcast: {}", peer, e);
+                }
+            }
         }
 
-        println!("[NETWORK] Transaction {} broadcast complete", hex::encode(tx_hash));
-        Ok(peer_count)
+        println!("[NETWORK] Transaction {} broadcast complete: {} of {} peers received",
+                 hex::encode(tx_hash), success_count, peer_count);
+        Ok(success_count)
     }
 
     /// Get the number of connected peers
@@ -334,7 +388,7 @@ impl NetworkServer {
 
                             // Handle connection
                             println!("[NETWORK] Starting connection handler for {}", addr);
-                            if let Err(e) = handle_connection(stream, addr, peers) {
+                            if let Err(e) = handle_connection(stream, addr, peers, self.blockchain.clone()) {
                                 println!("[NETWORK] Error handling connection to {}: {}", addr, e);
                             }
                         },
@@ -361,6 +415,7 @@ fn handle_connection(
     mut stream: TcpStream,
     addr: SocketAddr,
     peers: Arc<Mutex<HashSet<SocketAddr>>>,
+    blockchain: Option<Arc<Mutex<Blockchain>>>,
 ) -> Result<(), VibecoinError> {
     println!("[NETWORK] Setting up connection handler for {}", addr);
 
@@ -394,6 +449,32 @@ fn handle_connection(
     let mut buffer = [0; 1024];
     println!("[NETWORK] Starting message loop for {}", addr);
 
+    // Send initial version message
+    let version_msg = format!("version:VibeCoin/0.1.0:{}\n", std::process::id());
+    println!("[NETWORK] Sending initial version message to {}: {}", addr, version_msg.trim());
+
+    match stream.write_all(version_msg.as_bytes()) {
+        Ok(_) => println!("[NETWORK] Sent initial version message to {}", addr),
+        Err(e) => {
+            println!("[NETWORK] Error sending initial version to {}: {}", addr, e);
+            println!("[NETWORK] Error kind: {:?}", e.kind());
+            return Err(VibecoinError::IoError(e));
+        }
+    }
+
+    // After connecting, request the peer's blockchain state
+    let getstate_msg = "getstate\n";
+    println!("[NETWORK] Requesting blockchain state from {}", addr);
+
+    match stream.write_all(getstate_msg.as_bytes()) {
+        Ok(_) => println!("[NETWORK] Sent getstate request to {}", addr),
+        Err(e) => {
+            println!("[NETWORK] Error sending getstate to {}: {}", addr, e);
+            println!("[NETWORK] Error kind: {:?}", e.kind());
+            return Err(VibecoinError::IoError(e));
+        }
+    }
+
     loop {
         match stream.read(&mut buffer) {
             Ok(0) => {
@@ -406,36 +487,151 @@ fn handle_connection(
             },
             Ok(n) => {
                 // Process message
-                let message = String::from_utf8_lossy(&buffer[0..n]);
-                println!("[NETWORK] Received from {}: {}", addr, message.trim());
+                let message_str = String::from_utf8_lossy(&buffer[0..n]);
+                println!("[NETWORK] Received from {}: {}", addr, message_str.trim());
 
-                // Send a version message if this is a new connection
-                if message.starts_with("version") || n < 10 {
-                    // Send version message
-                    let version_msg = format!("version:VibeCoin/0.1.0:{}\n", std::process::id());
-                    println!("[NETWORK] Sending version message to {}: {}", addr, version_msg.trim());
+                // Parse the message
+                match parse_message(&message_str) {
+                    Ok(message) => {
+                        match message {
+                            Message::Version { version, node_id } => {
+                                println!("[NETWORK] Received version message from {}: {} (node ID: {})", addr, version, node_id);
 
-                    match stream.write_all(version_msg.as_bytes()) {
-                        Ok(_) => println!("[NETWORK] Sent version message to {}", addr),
-                        Err(e) => {
-                            println!("[NETWORK] Error sending version to {}: {}", addr, e);
-                            println!("[NETWORK] Error kind: {:?}", e.kind());
-                            peers.lock().unwrap().remove(&addr);
-                            println!("[NETWORK] Removed {} from peers list", addr);
-                            break;
+                                // Send our version in response
+                                let version_msg = format!("version:VibeCoin/0.1.0:{}\n", std::process::id());
+                                if let Err(e) = stream.write_all(version_msg.as_bytes()) {
+                                    println!("[NETWORK] Error sending version to {}: {}", addr, e);
+                                    break;
+                                }
+                            },
+                            Message::GetState => {
+                                println!("[NETWORK] Received getstate request from {}", addr);
+
+                                // Send our blockchain state
+                                if let Some(blockchain_ref) = &blockchain {
+                                    if let Ok(blockchain) = blockchain_ref.lock() {
+                                        let state = blockchain.get_state_summary();
+                                        let state_msg = format_message(&Message::State(state));
+
+                                        println!("[NETWORK] Sending blockchain state to {}: height={}, hash={}",
+                                                 addr, state.height, hex::encode(state.latest_hash));
+
+                                        if let Err(e) = stream.write_all(state_msg.as_bytes()) {
+                                            println!("[NETWORK] Error sending state to {}: {}", addr, e);
+                                            break;
+                                        }
+                                    }
+                                }
+                            },
+                            Message::State(state) => {
+                                println!("[NETWORK] Received blockchain state from {}: height={}, hash={}",
+                                         addr, state.height, hex::encode(state.latest_hash));
+
+                                // Compare with our blockchain state
+                                if let Some(blockchain_ref) = &blockchain {
+                                    if let Ok(blockchain) = blockchain_ref.lock() {
+                                        let our_state = blockchain.get_state_summary();
+
+                                        if state.height > our_state.height {
+                                            println!("[NETWORK] Peer {} has higher blockchain: {} vs our {}",
+                                                     addr, state.height, our_state.height);
+
+                                            // Request missing blocks
+                                            let start_height = our_state.height + 1;
+                                            let end_height = state.height;
+
+                                            let getblocks_msg = format!("getblocks:{}:{}\n", start_height, end_height);
+                                            println!("[NETWORK] Requesting blocks {} to {} from {}", start_height, end_height, addr);
+
+                                            if let Err(e) = stream.write_all(getblocks_msg.as_bytes()) {
+                                                println!("[NETWORK] Error sending getblocks to {}: {}", addr, e);
+                                                break;
+                                            }
+                                        } else if state.height < our_state.height {
+                                            println!("[NETWORK] Peer {} has lower blockchain: {} vs our {}",
+                                                     addr, state.height, our_state.height);
+                                        } else {
+                                            println!("[NETWORK] Peer {} has same blockchain height: {}", addr, state.height);
+                                        }
+                                    }
+                                }
+                            },
+                            Message::GetBlocks { start_height, end_height } => {
+                                println!("[NETWORK] Received getblocks request from {}: {} to {}", addr, start_height, end_height);
+
+                                // Send requested blocks
+                                if let Some(blockchain_ref) = &blockchain {
+                                    if let Ok(blockchain) = blockchain_ref.lock() {
+                                        // For now, we'll just send a message that we received the request
+                                        // In a real implementation, we would send the actual blocks
+                                        let msg = format!("Blocks {} to {} will be sent\n", start_height, end_height);
+                                        if let Err(e) = stream.write_all(msg.as_bytes()) {
+                                            println!("[NETWORK] Error sending block info to {}: {}", addr, e);
+                                            break;
+                                        }
+                                    }
+                                }
+                            },
+                            Message::GetBlock(hash) => {
+                                println!("[NETWORK] Received getblock request from {}: {}", addr, hex::encode(hash));
+
+                                // Send requested block
+                                // For now, we'll just send a message that we received the request
+                                // In a real implementation, we would send the actual block
+                                let msg = format!("Block {} will be sent\n", hex::encode(hash));
+                                if let Err(e) = stream.write_all(msg.as_bytes()) {
+                                    println!("[NETWORK] Error sending block info to {}: {}", addr, e);
+                                    break;
+                                }
+                            },
+                            Message::NewBlock(hash) => {
+                                println!("[NETWORK] Received newblock announcement from {}: {}", addr, hex::encode(hash));
+
+                                // Request the block if we don't have it
+                                // For now, we'll just send a message that we received the announcement
+                                // In a real implementation, we would check if we have the block and request it if not
+                                let msg = format!("Received newblock announcement for {}\n", hex::encode(hash));
+                                if let Err(e) = stream.write_all(msg.as_bytes()) {
+                                    println!("[NETWORK] Error sending newblock response to {}: {}", addr, e);
+                                    break;
+                                }
+                            },
+                            Message::NewTransaction(hash) => {
+                                println!("[NETWORK] Received newtx announcement from {}: {}", addr, hex::encode(hash));
+
+                                // For now, we'll just send a message that we received the announcement
+                                // In a real implementation, we would check if we have the transaction and request it if not
+                                let msg = format!("Received newtx announcement for {}\n", hex::encode(hash));
+                                if let Err(e) = stream.write_all(msg.as_bytes()) {
+                                    println!("[NETWORK] Error sending newtx response to {}: {}", addr, e);
+                                    break;
+                                }
+                            },
+                            Message::Ping(nonce) => {
+                                println!("[NETWORK] Received ping from {}: {}", addr, nonce);
+
+                                // Send pong response
+                                let pong_msg = format!("pong:{}\n", nonce);
+                                if let Err(e) = stream.write_all(pong_msg.as_bytes()) {
+                                    println!("[NETWORK] Error sending pong to {}: {}", addr, e);
+                                    break;
+                                }
+                            },
+                            Message::Pong(nonce) => {
+                                println!("[NETWORK] Received pong from {}: {}", addr, nonce);
+                                // Nothing to do here, just log it
+                            },
+                            _ => {
+                                println!("[NETWORK] Received unknown message type from {}", addr);
+                            }
                         }
-                    }
-                } else {
-                    // Echo back other messages
-                    println!("[NETWORK] Echoing message back to {}", addr);
-                    match stream.write_all(&buffer[0..n]) {
-                        Ok(_) => println!("[NETWORK] Echoed message to {}", addr),
-                        Err(e) => {
-                            println!("[NETWORK] Error writing to {}: {}", addr, e);
-                            println!("[NETWORK] Error kind: {:?}", e.kind());
-                            // Remove from peers
-                            peers.lock().unwrap().remove(&addr);
-                            println!("[NETWORK] Removed {} from peers list", addr);
+                    },
+                    Err(e) => {
+                        println!("[NETWORK] Error parsing message from {}: {}", addr, e);
+
+                        // Echo back the message for backward compatibility
+                        if let Err(e) = stream.write_all(&buffer[0..n]) {
+                            println!("[NETWORK] Error echoing message to {}: {}", addr, e);
                             break;
                         }
                     }
@@ -444,6 +640,21 @@ fn handle_connection(
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 // No data available, sleep for a bit
                 thread::sleep(Duration::from_millis(100));
+
+                // Periodically send ping to keep the connection alive
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                if now % 30 == 0 { // Send ping every 30 seconds
+                    let nonce = rand::thread_rng().gen::<u64>();
+                    let ping_msg = format!("ping:{}\n", nonce);
+
+                    match stream.write_all(ping_msg.as_bytes()) {
+                        Ok(_) => println!("[NETWORK] Sent ping to {}: {}", addr, nonce),
+                        Err(e) => {
+                            println!("[NETWORK] Error sending ping to {}: {}", addr, e);
+                            break;
+                        }
+                    }
+                }
             },
             Err(e) => {
                 println!("[NETWORK] Error reading from {}: {}", addr, e);

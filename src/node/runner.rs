@@ -9,7 +9,7 @@ use crate::types::primitives::PublicKey;
 use crate::wallet::keys::Wallet;
 use crate::network::server::{NetworkServer, NetworkConfig};
 use crate::network::bootstrap::get_bootstrap_addresses;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::net::SocketAddr;
 use std::thread;
@@ -132,9 +132,13 @@ impl Node {
             };
 
             // Create the network server
-            let server = NetworkServer::new(network_config);
+            let mut server = NetworkServer::new(network_config);
             println!("Network server initialized, listening on {}",
                      config.p2p_listen_addr.unwrap_or_else(|| "0.0.0.0:8333".parse().unwrap()));
+
+            // Set the blockchain reference
+            let blockchain_ref = Arc::new(Mutex::new(blockchain.clone()));
+            server.set_blockchain(blockchain_ref);
 
             // Print bootstrap peers
             println!("Bootstrap peers available:");
