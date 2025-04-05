@@ -3,7 +3,12 @@
 
 use crate::types::error::VibecoinError;
 use crate::network::bootstrap::get_bootstrap_addresses;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::io::{Read, Write};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 /// Network server configuration
 pub struct NetworkConfig {
@@ -29,6 +34,8 @@ impl Default for NetworkConfig {
 pub struct NetworkServer {
     /// Configuration
     config: NetworkConfig,
+    /// Connected peers
+    peers: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<SocketAddr>>>,
 }
 
 impl NetworkServer {
@@ -36,19 +43,58 @@ impl NetworkServer {
     pub fn new(config: NetworkConfig) -> Self {
         NetworkServer {
             config,
+            peers: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         }
     }
 
     /// Start the network server
     pub fn start(&self) -> Result<(), VibecoinError> {
-        println!("Network server started (placeholder)");
+        println!("Network server starting...");
         println!("Listening on {}", self.config.listen_addr);
+
+        // Start listener
+        let listener = TcpListener::bind(self.config.listen_addr)
+            .map_err(|e| VibecoinError::IoError(e))?;
+
+        // Set non-blocking mode
+        listener.set_nonblocking(true)
+            .map_err(|e| VibecoinError::IoError(e))?;
+
+        // Start listener thread
+        let listen_addr = self.config.listen_addr;
+        thread::spawn(move || {
+            println!("Listener thread started on {}", listen_addr);
+
+            loop {
+                match listener.accept() {
+                    Ok((stream, addr)) => {
+                        println!("Accepted connection from {}", addr);
+
+                        // Handle connection in a new thread
+                        thread::spawn(move || {
+                            if let Err(e) = handle_connection(stream, addr) {
+                                println!("Error handling connection from {}: {}", addr, e);
+                            }
+                        });
+                    },
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // No new connections, sleep for a bit
+                        thread::sleep(Duration::from_millis(100));
+                    },
+                    Err(e) => {
+                        println!("Error accepting connection: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
 
         // Connect to seed nodes if provided
         if !self.config.seed_nodes.is_empty() {
             println!("Connecting to seed nodes:");
             for seed in &self.config.seed_nodes {
                 println!("  - {}", seed);
+                connect_to_peer(*seed);
             }
         } else {
             // Use bootstrap peers if no seed nodes are provided
@@ -57,10 +103,12 @@ impl NetworkServer {
                 println!("Connecting to bootstrap peers:");
                 for peer in &bootstrap_peers {
                     println!("  - {}", peer);
+                    connect_to_peer(*peer);
                 }
             }
         }
 
+        println!("Network server started");
         Ok(())
     }
 
@@ -83,11 +131,77 @@ impl NetworkServer {
 
     /// Get the number of connected peers
     pub fn get_peer_count(&self) -> usize {
-        0 // No peers yet
+        self.peers.lock().unwrap().len()
     }
 
     /// Get information about all connected peers
     pub fn get_peer_info(&self) -> Vec<String> {
-        Vec::new() // No peers yet
+        let peers = self.peers.lock().unwrap();
+        peers.iter().map(|addr| addr.to_string()).collect()
     }
+}
+
+/// Connect to a peer
+fn connect_to_peer(addr: SocketAddr) {
+    thread::spawn(move || {
+        match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
+            Ok(stream) => {
+                println!("Connected to {}", addr);
+
+                // Handle connection
+                if let Err(e) = handle_connection(stream, addr) {
+                    println!("Error handling connection to {}: {}", addr, e);
+                }
+            },
+            Err(e) => {
+                println!("Failed to connect to {}: {}", addr, e);
+            }
+        }
+    });
+}
+
+/// Handle a connection
+fn handle_connection(
+    mut stream: TcpStream,
+    addr: SocketAddr,
+) -> Result<(), VibecoinError> {
+    // Set timeouts
+    stream.set_read_timeout(Some(Duration::from_secs(30)))
+        .map_err(|e| VibecoinError::IoError(e))?;
+    stream.set_write_timeout(Some(Duration::from_secs(30)))
+        .map_err(|e| VibecoinError::IoError(e))?;
+
+    // Simple message loop
+    let mut buffer = [0; 1024];
+
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => {
+                // Connection closed
+                println!("Connection closed by {}", addr);
+                break;
+            },
+            Ok(n) => {
+                // Process message
+                let message = String::from_utf8_lossy(&buffer[0..n]);
+                println!("Received from {}: {}", addr, message);
+
+                // Echo back
+                if let Err(e) = stream.write_all(&buffer[0..n]) {
+                    println!("Error writing to {}: {}", addr, e);
+                    break;
+                }
+            },
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No data available, sleep for a bit
+                thread::sleep(Duration::from_millis(100));
+            },
+            Err(e) => {
+                println!("Error reading from {}: {}", addr, e);
+                break;
+            }
+        }
+    }
+
+    Ok(())
 }
