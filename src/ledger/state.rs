@@ -305,7 +305,7 @@ impl Blockchain {
 }
 
 // A lightweight summary of blockchain state
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockchainState {
     pub height: u64,
     pub latest_hash: [u8; 32],

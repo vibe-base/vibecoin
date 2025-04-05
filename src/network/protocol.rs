@@ -38,21 +38,21 @@ pub enum Message {
 /// Parse a message from a string
 pub fn parse_message(msg: &str) -> Result<Message, VibecoinError> {
     let parts: Vec<&str> = msg.trim().split(':').collect();
-    
+
     if parts.is_empty() {
         return Err(VibecoinError::NetworkError("Empty message".to_string()));
     }
-    
+
     match parts[0] {
         "version" => {
             if parts.len() < 3 {
                 return Err(VibecoinError::NetworkError("Invalid version message".to_string()));
             }
-            
+
             let version = parts[1].to_string();
             let node_id = parts[2].parse::<u32>()
                 .map_err(|_| VibecoinError::NetworkError("Invalid node ID".to_string()))?;
-            
+
             Ok(Message::Version { version, node_id })
         },
         "getstate" => {
@@ -62,33 +62,33 @@ pub fn parse_message(msg: &str) -> Result<Message, VibecoinError> {
             if parts.len() < 5 {
                 return Err(VibecoinError::NetworkError("Invalid state message".to_string()));
             }
-            
+
             let height = parts[1].parse::<u64>()
                 .map_err(|_| VibecoinError::NetworkError("Invalid height".to_string()))?;
-            
+
             let latest_hash = hex::decode(parts[2])
                 .map_err(|_| VibecoinError::NetworkError("Invalid hash".to_string()))?;
-            
+
             let mut hash = [0u8; 32];
             if latest_hash.len() == 32 {
                 hash.copy_from_slice(&latest_hash);
             } else {
                 return Err(VibecoinError::NetworkError("Invalid hash length".to_string()));
             }
-            
-            let difficulty = parts[3].parse::<u32>()
+
+            let difficulty = parts[3].parse::<u8>()
                 .map_err(|_| VibecoinError::NetworkError("Invalid difficulty".to_string()))?;
-            
+
             let poh_count = parts[4].parse::<u64>()
                 .map_err(|_| VibecoinError::NetworkError("Invalid PoH count".to_string()))?;
-            
+
             let current_slot = if parts.len() > 5 {
                 parts[5].parse::<u64>()
                     .map_err(|_| VibecoinError::NetworkError("Invalid slot".to_string()))?
             } else {
                 0
             };
-            
+
             Ok(Message::State(BlockchainState {
                 height,
                 latest_hash: hash,
@@ -101,30 +101,30 @@ pub fn parse_message(msg: &str) -> Result<Message, VibecoinError> {
             if parts.len() < 2 {
                 return Err(VibecoinError::NetworkError("Invalid getblock message".to_string()));
             }
-            
+
             let hash_bytes = hex::decode(parts[1])
                 .map_err(|_| VibecoinError::NetworkError("Invalid hash".to_string()))?;
-            
+
             let mut hash = [0u8; 32];
             if hash_bytes.len() == 32 {
                 hash.copy_from_slice(&hash_bytes);
             } else {
                 return Err(VibecoinError::NetworkError("Invalid hash length".to_string()));
             }
-            
+
             Ok(Message::GetBlock(hash))
         },
         "getblocks" => {
             if parts.len() < 3 {
                 return Err(VibecoinError::NetworkError("Invalid getblocks message".to_string()));
             }
-            
+
             let start_height = parts[1].parse::<u64>()
                 .map_err(|_| VibecoinError::NetworkError("Invalid start height".to_string()))?;
-            
+
             let end_height = parts[2].parse::<u64>()
                 .map_err(|_| VibecoinError::NetworkError("Invalid end height".to_string()))?;
-            
+
             Ok(Message::GetBlocks {
                 start_height,
                 end_height,
@@ -134,54 +134,54 @@ pub fn parse_message(msg: &str) -> Result<Message, VibecoinError> {
             if parts.len() < 2 {
                 return Err(VibecoinError::NetworkError("Invalid newblock message".to_string()));
             }
-            
+
             let hash_bytes = hex::decode(parts[1])
                 .map_err(|_| VibecoinError::NetworkError("Invalid hash".to_string()))?;
-            
+
             let mut hash = [0u8; 32];
             if hash_bytes.len() == 32 {
                 hash.copy_from_slice(&hash_bytes);
             } else {
                 return Err(VibecoinError::NetworkError("Invalid hash length".to_string()));
             }
-            
+
             Ok(Message::NewBlock(hash))
         },
         "newtx" => {
             if parts.len() < 2 {
                 return Err(VibecoinError::NetworkError("Invalid newtx message".to_string()));
             }
-            
+
             let hash_bytes = hex::decode(parts[1])
                 .map_err(|_| VibecoinError::NetworkError("Invalid hash".to_string()))?;
-            
+
             let mut hash = [0u8; 32];
             if hash_bytes.len() == 32 {
                 hash.copy_from_slice(&hash_bytes);
             } else {
                 return Err(VibecoinError::NetworkError("Invalid hash length".to_string()));
             }
-            
+
             Ok(Message::NewTransaction(hash))
         },
         "ping" => {
             if parts.len() < 2 {
                 return Err(VibecoinError::NetworkError("Invalid ping message".to_string()));
             }
-            
+
             let nonce = parts[1].parse::<u64>()
                 .map_err(|_| VibecoinError::NetworkError("Invalid nonce".to_string()))?;
-            
+
             Ok(Message::Ping(nonce))
         },
         "pong" => {
             if parts.len() < 2 {
                 return Err(VibecoinError::NetworkError("Invalid pong message".to_string()));
             }
-            
+
             let nonce = parts[1].parse::<u64>()
                 .map_err(|_| VibecoinError::NetworkError("Invalid nonce".to_string()))?;
-            
+
             Ok(Message::Pong(nonce))
         },
         _ => {
@@ -237,14 +237,14 @@ pub fn serialize_block(block: &Block) -> Vec<u8> {
     // In a real implementation, we would use a proper serialization format
     // For now, we'll use a simple string representation
     let mut data = Vec::new();
-    
+
     // Add block header fields
     data.extend_from_slice(&block.index.to_le_bytes());
     data.extend_from_slice(&block.previous_hash);
     data.extend_from_slice(&block.timestamp.to_le_bytes());
     data.extend_from_slice(&block.nonce.to_le_bytes());
     data.extend_from_slice(&block.slot_number.to_le_bytes());
-    
+
     // Add slot leader if present
     if let Some(leader) = block.slot_leader {
         data.push(1); // Indicator that leader is present
@@ -252,7 +252,7 @@ pub fn serialize_block(block: &Block) -> Vec<u8> {
     } else {
         data.push(0); // Indicator that leader is not present
     }
-    
+
     // Add PoH proof if present
     if let Some(proof) = block.poh_proof {
         data.push(1); // Indicator that proof is present
@@ -260,16 +260,16 @@ pub fn serialize_block(block: &Block) -> Vec<u8> {
     } else {
         data.push(0); // Indicator that proof is not present
     }
-    
+
     // Add transactions
     data.extend_from_slice(&(block.transactions.len() as u32).to_le_bytes());
     for tx in block.transactions.iter() {
         data.extend_from_slice(&tx.hash);
     }
-    
+
     // Add block hash
     data.extend_from_slice(&block.hash);
-    
+
     data
 }
 
@@ -277,9 +277,9 @@ pub fn serialize_block(block: &Block) -> Vec<u8> {
 pub fn deserialize_block(data: &[u8]) -> Result<Block, VibecoinError> {
     // In a real implementation, we would use a proper deserialization format
     // For now, we'll use a simple string representation
-    
+
     // This is a placeholder - in a real implementation, we would parse the bytes
     // and construct a Block object
-    
+
     Err(VibecoinError::NetworkError("Block deserialization not implemented".to_string()))
 }

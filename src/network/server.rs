@@ -11,7 +11,7 @@ use std::thread;
 use std::time::Duration;
 use crate::network::protocol::{Message, parse_message, format_message};
 use crate::ledger::state::Blockchain;
-use crate::types::error::VibecoinError;
+use rand::thread_rng;
 use rand::Rng;
 
 /// Get all local IP addresses
@@ -336,6 +336,7 @@ impl NetworkServer {
     /// Connect to a peer
     pub fn connect_to_peer(&self, addr: SocketAddr) {
         let peers = Arc::clone(&self.peers);
+        let blockchain = self.blockchain.clone();
 
         // Check if we're already connected to this peer
         if peers.lock().unwrap().contains(&addr) {
@@ -345,7 +346,8 @@ impl NetworkServer {
 
         // Check if this is a self-connection
         let local_ips = get_local_ips();
-        if local_ips.contains(&addr.ip()) && addr.port() == self.config.listen_addr.port() {
+        let listen_port = self.config.listen_addr.port();
+        if local_ips.contains(&addr.ip()) && addr.port() == listen_port {
             println!("[NETWORK] Skipping connection to self: {}", addr);
             return;
         }
@@ -388,7 +390,7 @@ impl NetworkServer {
 
                             // Handle connection
                             println!("[NETWORK] Starting connection handler for {}", addr);
-                            if let Err(e) = handle_connection(stream, addr, peers, self.blockchain.clone()) {
+                            if let Err(e) = handle_connection(stream, addr, peers, blockchain) {
                                 println!("[NETWORK] Error handling connection to {}: {}", addr, e);
                             }
                         },
@@ -511,7 +513,7 @@ fn handle_connection(
                                 if let Some(blockchain_ref) = &blockchain {
                                     if let Ok(blockchain) = blockchain_ref.lock() {
                                         let state = blockchain.get_state_summary();
-                                        let state_msg = format_message(&Message::State(state));
+                                        let state_msg = format_message(&Message::State(state.clone()));
 
                                         println!("[NETWORK] Sending blockchain state to {}: height={}, hash={}",
                                                  addr, state.height, hex::encode(state.latest_hash));
@@ -644,7 +646,8 @@ fn handle_connection(
                 // Periodically send ping to keep the connection alive
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
                 if now % 30 == 0 { // Send ping every 30 seconds
-                    let nonce = rand::thread_rng().gen::<u64>();
+                    // Generate a random nonce
+                    let nonce: u64 = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
                     let ping_msg = format!("ping:{}\n", nonce);
 
                     match stream.write_all(ping_msg.as_bytes()) {
