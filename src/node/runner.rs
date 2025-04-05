@@ -7,9 +7,11 @@ use crate::node::mempool::{TransactionPool, MAX_TRANSACTIONS_PER_BLOCK};
 use crate::types::error::VibecoinError;
 use crate::types::primitives::PublicKey;
 use crate::wallet::keys::Wallet;
+use crate::network::server::{NetworkServer, NetworkConfig};
+use crate::network::bootstrap::get_bootstrap_addresses;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::path::Path;
+use std::net::SocketAddr;
 use std::thread;
 
 /// Configuration for the node
@@ -30,6 +32,16 @@ pub struct NodeConfig {
     pub wallet_path: String,
     /// Password for the wallet
     pub wallet_password: String,
+    /// Whether to enable networking
+    pub enable_networking: bool,
+    /// Address to listen on for P2P connections
+    pub p2p_listen_addr: Option<SocketAddr>,
+    /// Seed nodes to connect to
+    pub seed_nodes: Vec<SocketAddr>,
+    /// Maximum number of inbound connections
+    pub max_inbound: usize,
+    /// Maximum number of outbound connections
+    pub max_outbound: usize,
 }
 
 impl Default for NodeConfig {
@@ -43,6 +55,11 @@ impl Default for NodeConfig {
             poh_ticks_per_second: 1000,
             wallet_path: "config/miner_wallet.json".to_string(),
             wallet_password: "password".to_string(), // In a real app, this would be securely provided
+            enable_networking: false, // Disabled by default for safety
+            p2p_listen_addr: Some("127.0.0.1:8333".parse().unwrap()),
+            seed_nodes: Vec::new(),
+            max_inbound: 125,
+            max_outbound: 8,
         }
     }
 }
@@ -59,6 +76,8 @@ pub struct Node {
     pub config: NodeConfig,
     /// Miner wallet for receiving rewards
     pub miner_wallet: Wallet,
+    /// Network server for P2P communication
+    pub network: Option<NetworkServer>,
     /// Last time a block was mined
     pub last_block_time: Instant,
     /// Whether the node is running
@@ -86,12 +105,44 @@ impl Node {
         let miner_wallet = Wallet::load_or_create(&config.wallet_path, &config.wallet_password)?;
         println!("Miner address: {}", hex::encode(miner_wallet.get_address()));
 
+        // Create transaction pool
+        let mempool = TransactionPool::new();
+
+        // Initialize network server if networking is enabled
+        let network = if config.enable_networking {
+            // Determine seed nodes - use provided ones or bootstrap peers
+            let seed_nodes = if config.seed_nodes.is_empty() {
+                // Use bootstrap peers if no seed nodes are provided
+                get_bootstrap_addresses()
+            } else {
+                config.seed_nodes.clone()
+            };
+
+            // Create network configuration
+            let network_config = NetworkConfig {
+                listen_addr: config.p2p_listen_addr.unwrap_or_else(|| "127.0.0.1:8333".parse().unwrap()),
+                seed_nodes,
+                user_agent: format!("VibeCoin/0.1.0 ({})", config.wallet_path),
+            };
+
+            // Create the network server
+            let server = NetworkServer::new(network_config);
+            println!("Network server initialized, listening on {}",
+                     config.p2p_listen_addr.unwrap_or_else(|| "127.0.0.1:8333".parse().unwrap()));
+
+            Some(server)
+        } else {
+            println!("Networking disabled");
+            None
+        };
+
         Ok(Node {
             blockchain,
             poh_generator: poh,
-            mempool: TransactionPool::new(),
+            mempool,
             config,
             miner_wallet,
+            network,
             last_block_time: Instant::now(),
             running: false,
         })
@@ -104,6 +155,13 @@ impl Node {
         println!("Difficulty: {}", self.config.difficulty);
         println!("Mining enabled: {}", self.config.mining_enabled);
 
+        // Start the network server if enabled
+        if let Some(network) = &self.network {
+            println!("Starting network server...");
+            network.start()?;
+            println!("Network server started");
+        }
+
         self.running = true;
         self.run_main_loop()
     }
@@ -111,6 +169,13 @@ impl Node {
     /// Stop the node
     pub fn stop(&mut self) {
         println!("Stopping VibeCoin node...");
+
+        // Stop the network server if enabled
+        if let Some(network) = &self.network {
+            println!("Stopping network server...");
+            network.stop();
+        }
+
         self.running = false;
     }
 
@@ -209,18 +274,34 @@ impl Node {
         println!("Nonce: {}", block.nonce);
 
         // Add the block to our blockchain
-        self.blockchain.add_block(block)?;
+        self.blockchain.add_block(block.clone())?;
 
         // Remove mined transactions from mempool
         self.mempool.remove_included_transactions(&transactions);
+
+        // Broadcast the block to the network if networking is enabled
+        if let Some(network) = &self.network {
+            if let Ok(peer_count) = network.broadcast_block(&block.hash) {
+                println!("Block broadcast to {} peers", peer_count);
+            }
+        }
 
         Ok(())
     }
 
     /// Add a transaction to the mempool
     pub fn add_transaction(&mut self, transaction: Transaction) -> Result<(), VibecoinError> {
-        self.mempool.add_transaction(transaction)?;
+        // Add to mempool
+        self.mempool.add_transaction(transaction.clone())?;
         println!("Transaction added to mempool. Pool size: {}", self.mempool.size());
+
+        // Broadcast the transaction to the network if networking is enabled
+        if let Some(network) = &self.network {
+            if let Ok(peer_count) = network.broadcast_transaction(&transaction.hash) {
+                println!("Transaction broadcast to {} peers", peer_count);
+            }
+        }
+
         Ok(())
     }
 
@@ -245,5 +326,26 @@ impl Node {
             state.difficulty,
             state.poh_count
         )
+    }
+
+    /// Get network status
+    pub fn get_network_status(&self) -> String {
+        if let Some(network) = &self.network {
+            let peer_count = network.get_peer_count();
+            let peers = network.get_peer_info();
+
+            let mut status = format!("Connected to {} peers\n", peer_count);
+
+            if !peers.is_empty() {
+                status.push_str("Peers:\n");
+                for (i, peer) in peers.iter().enumerate() {
+                    status.push_str(&format!("  {}. {}\n", i + 1, peer));
+                }
+            }
+
+            status
+        } else {
+            "Networking disabled".to_string()
+        }
     }
 }

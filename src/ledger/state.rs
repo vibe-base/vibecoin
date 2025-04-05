@@ -3,6 +3,7 @@ use crate::types::error::VibecoinError;
 use crate::consensus::poh::ProofOfHistory;
 use crate::consensus::pow::{self, Difficulty};
 
+#[derive(Clone)]
 pub struct Blockchain {
     pub chain: Vec<Block>,
     pub difficulty: Difficulty,

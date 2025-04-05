@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Sender, Receiver};
 enum NodeCommand {
     CreateTransaction(u64),
     GetState,
+    GetNetworkStatus,
     Stop,
 }
 
@@ -16,6 +17,7 @@ enum NodeCommand {
 enum NodeResponse {
     TransactionCreated(String),
     State(String),
+    NetworkStatus(String),
     Error(String),
 }
 
@@ -30,6 +32,13 @@ fn main() {
         mine_empty_blocks: true,      // Mine even if there are no transactions
         max_tx_age: 3600,             // 1 hour max age for transactions
         poh_ticks_per_second: 1000,
+        wallet_path: "config/node_wallet.json".to_string(),
+        wallet_password: "password".to_string(),
+        enable_networking: true,      // Enable networking
+        p2p_listen_addr: Some("127.0.0.1:8333".parse().unwrap()),
+        seed_nodes: Vec::new(),
+        max_inbound: 125,
+        max_outbound: 8,
     };
 
     // Create channels for communication with the node
@@ -46,7 +55,7 @@ fn main() {
 
     // Interactive command loop
     println!("\nVibeCoin Node is running!");
-    println!("Commands:\n  tx <amount> - Create a test transaction\n  state - Show blockchain state\n  exit - Exit the node\n");
+    println!("Commands:\n  tx <amount> - Create a test transaction\n  state - Show blockchain state\n  network - Show network status\n  exit - Exit the node\n");
 
     let mut input = String::new();
     let stdin = io::stdin();
@@ -132,9 +141,29 @@ fn main() {
 
                 break;
             },
+            "network" => {
+                // Send command to get network status
+                if let Err(e) = cmd_tx.send(NodeCommand::GetNetworkStatus) {
+                    eprintln!("Failed to send command: {}", e);
+                    continue;
+                }
+
+                // Wait for response
+                match resp_rx.recv() {
+                    Ok(NodeResponse::NetworkStatus(status)) => {
+                        println!("Network status:\n{}", status);
+                    },
+                    Ok(NodeResponse::Error(msg)) => {
+                        println!("Error: {}", msg);
+                    },
+                    _ => {
+                        println!("Unexpected response");
+                    }
+                }
+            },
             _ => {
                 println!("Unknown command: {}", parts[0]);
-                println!("Commands:\n  tx <amount> - Create a test transaction\n  state - Show blockchain state\n  exit - Exit the node");
+                println!("Commands:\n  tx <amount> - Create a test transaction\n  state - Show blockchain state\n  network - Show network status\n  exit - Exit the node");
             }
         }
     }
@@ -213,6 +242,11 @@ fn run_node(config: NodeConfig, cmd_rx: Receiver<NodeCommand>, resp_tx: Sender<N
                 let node = node_arc.lock().unwrap();
                 let state = node.get_blockchain_state();
                 let _ = resp_tx.send(NodeResponse::State(state));
+            },
+            Ok(NodeCommand::GetNetworkStatus) => {
+                let node = node_arc.lock().unwrap();
+                let status = node.get_network_status();
+                let _ = resp_tx.send(NodeResponse::NetworkStatus(status));
             },
             Ok(NodeCommand::Stop) => {
                 running = false;

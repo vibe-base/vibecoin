@@ -5,7 +5,7 @@ use crate::crypto::hash::sha256_bytes;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub index: u64,
     pub previous_hash: Hash,

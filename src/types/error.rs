@@ -16,6 +16,8 @@ pub enum VibecoinError {
     InvalidHash,
     InvalidPreviousHash,
     BlockchainError(String),
+    NetworkError(String),
+    SerializationError(String),
 }
 
 impl std::error::Error for VibecoinError {}
@@ -37,6 +39,8 @@ impl fmt::Display for VibecoinError {
             VibecoinError::InvalidHash => write!(f, "Invalid block hash"),
             VibecoinError::InvalidPreviousHash => write!(f, "Invalid previous hash"),
             VibecoinError::BlockchainError(msg) => write!(f, "Blockchain error: {}", msg),
+            VibecoinError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            VibecoinError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
         }
     }
 }

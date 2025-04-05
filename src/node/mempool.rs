@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const MAX_TRANSACTIONS_PER_BLOCK: usize = 100;
 
 /// Transaction pool (mempool) for storing pending transactions
+#[derive(Clone)]
 pub struct TransactionPool {
     /// Transactions indexed by their hash
     transactions: HashMap<Hash, Transaction>,
