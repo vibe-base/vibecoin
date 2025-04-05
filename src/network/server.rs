@@ -11,6 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 /// Network server configuration
+#[derive(Debug)]
 pub struct NetworkConfig {
     /// Address to listen on
     pub listen_addr: SocketAddr,
@@ -49,8 +50,9 @@ impl NetworkServer {
 
     /// Start the network server
     pub fn start(&self) -> Result<(), VibecoinError> {
-        println!("Network server starting...");
-        println!("Listening on {}", self.config.listen_addr);
+        println!("[NETWORK] Network server starting...");
+        println!("[NETWORK] Listening on {}", self.config.listen_addr);
+        println!("[NETWORK] Server config: {:?}", self.config);
 
         // Start listener
         let listener = TcpListener::bind(self.config.listen_addr)
@@ -198,33 +200,60 @@ impl NetworkServer {
     pub fn connect_to_peer(&self, addr: SocketAddr) {
         let peers = Arc::clone(&self.peers);
 
+        println!("[NETWORK] Attempting to connect to peer: {}", addr);
+
         thread::spawn(move || {
+            println!("[NETWORK] Spawned connection thread for {}", addr);
             match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
                 Ok(mut stream) => {
-                    println!("Connected to {}", addr);
+                    println!("[NETWORK] Connected to {}", addr);
+
+                    // Set TCP options
+                    if let Err(e) = stream.set_nodelay(true) {
+                        println!("[NETWORK] Warning: Failed to set TCP_NODELAY for {}: {}", addr, e);
+                    }
 
                     // Add to peers
                     peers.lock().unwrap().insert(addr);
+                    println!("[NETWORK] Added {} to peers list", addr);
 
                     // Send initial version message
                     let version_msg = format!("version:VibeCoin/0.1.0:{}\n", std::process::id());
+                    println!("[NETWORK] Sending version message to {}: {}", addr, version_msg.trim());
                     match stream.write_all(version_msg.as_bytes()) {
                         Ok(_) => {
-                            println!("Sent initial version message to {}", addr);
+                            println!("[NETWORK] Sent initial version message to {}", addr);
+
+                            // Try to read response
+                            let mut response = [0; 1024];
+                            match stream.read(&mut response) {
+                                Ok(n) => {
+                                    let response_str = String::from_utf8_lossy(&response[0..n]);
+                                    println!("[NETWORK] Received response from {}: {}", addr, response_str.trim());
+                                },
+                                Err(e) => {
+                                    println!("[NETWORK] Error reading response from {}: {}", addr, e);
+                                }
+                            }
+
                             // Handle connection
+                            println!("[NETWORK] Starting connection handler for {}", addr);
                             if let Err(e) = handle_connection(stream, addr, peers) {
-                                println!("Error handling connection to {}: {}", addr, e);
+                                println!("[NETWORK] Error handling connection to {}: {}", addr, e);
                             }
                         },
                         Err(e) => {
-                            println!("Error sending initial version to {}: {}", addr, e);
+                            println!("[NETWORK] Error sending initial version to {}: {}", addr, e);
+                            println!("[NETWORK] Error kind: {:?}", e.kind());
                             peers.lock().unwrap().remove(&addr);
+                            println!("[NETWORK] Removed {} from peers list", addr);
                         }
                     }
                 },
                 Err(e) => {
-                    println!("Failed to connect to {}: {}", addr, e);
-                    println!("Error kind: {:?}", e.kind());
+                    println!("[NETWORK] Failed to connect to {}: {}", addr, e);
+                    println!("[NETWORK] Error kind: {:?}", e.kind());
+                    println!("[NETWORK] Error details: {:?}", e);
                 }
             }
         });
