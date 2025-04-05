@@ -606,12 +606,30 @@ fn handle_connection(
                                 // Send requested blocks
                                 if let Some(blockchain_ref) = &blockchain {
                                     if let Ok(blockchain) = blockchain_ref.lock() {
-                                        // For now, we'll just send a message that we received the request
-                                        // In a real implementation, we would send the actual blocks
-                                        let msg = format!("Blocks {} to {} will be sent\n", start_height, end_height);
-                                        if let Err(e) = stream.write_all(msg.as_bytes()) {
-                                            println!("[NETWORK] Error sending block info to {}: {}", addr, e);
-                                            break;
+                                        // Get the blocks in the requested range
+                                        let current_height = blockchain.chain.len() as u64 - 1;
+                                        let end = std::cmp::min(end_height, current_height);
+
+                                        if start_height <= end {
+                                            for height in start_height..=end {
+                                                if height < blockchain.chain.len() as u64 {
+                                                    let block = &blockchain.chain[height as usize];
+
+                                                    // Serialize the block
+                                                    let block_data = crate::network::protocol::serialize_block(block);
+
+                                                    // Send the block data
+                                                    let block_msg = format_message(&Message::BlockData(block_data));
+                                                    println!("[NETWORK] Sending block {} to {}", height, addr);
+
+                                                    if let Err(e) = stream.write_all(block_msg.as_bytes()) {
+                                                        println!("[NETWORK] Error sending block to {}: {}", addr, e);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            println!("[NETWORK] Invalid block range: {} to {}", start_height, end_height);
                                         }
                                     }
                                 }
@@ -620,12 +638,84 @@ fn handle_connection(
                                 println!("[NETWORK] Received getblock request from {}: {}", addr, hex::encode(hash));
 
                                 // Send requested block
-                                // For now, we'll just send a message that we received the request
-                                // In a real implementation, we would send the actual block
-                                let msg = format!("Block {} will be sent\n", hex::encode(hash));
-                                if let Err(e) = stream.write_all(msg.as_bytes()) {
-                                    println!("[NETWORK] Error sending block info to {}: {}", addr, e);
-                                    break;
+                                if let Some(blockchain_ref) = &blockchain {
+                                    if let Ok(blockchain) = blockchain_ref.lock() {
+                                        // Find the block with the requested hash
+                                        let block = blockchain.chain.iter().find(|b| b.hash == hash);
+
+                                        if let Some(block) = block {
+                                            // Serialize the block
+                                            let block_data = crate::network::protocol::serialize_block(block);
+
+                                            // Send the block data
+                                            let block_msg = format_message(&Message::BlockData(block_data));
+                                            println!("[NETWORK] Sending block {} to {}", block.index, addr);
+
+                                            if let Err(e) = stream.write_all(block_msg.as_bytes()) {
+                                                println!("[NETWORK] Error sending block to {}: {}", addr, e);
+                                                break;
+                                            }
+                                        } else {
+                                            println!("[NETWORK] Block {} not found", hex::encode(hash));
+                                        }
+                                    }
+                                }
+                            },
+                            Message::Block(block) => {
+                                println!("[NETWORK] Received block {} from {}", block.index, addr);
+
+                                // Request the full block data if we don't have it
+                                if let Some(blockchain_ref) = &blockchain {
+                                    if let Ok(blockchain) = blockchain_ref.lock() {
+                                        let current_height = blockchain.chain.len() as u64 - 1;
+
+                                        if block.index > current_height {
+                                            // We need this block, request the full data
+                                            let getblock_msg = format_message(&Message::GetBlock(block.hash));
+                                            println!("[NETWORK] Requesting full block {} from {}", block.index, addr);
+
+                                            if let Err(e) = stream.write_all(getblock_msg.as_bytes()) {
+                                                println!("[NETWORK] Error requesting block from {}: {}", addr, e);
+                                                break;
+                                            }
+                                        } else {
+                                            println!("[NETWORK] Already have block {}", block.index);
+                                        }
+                                    }
+                                }
+                            },
+                            Message::BlockData(data) => {
+                                println!("[NETWORK] Received block data from {}", addr);
+
+                                // Deserialize the block
+                                match crate::network::protocol::deserialize_block(&data) {
+                                    Ok(block) => {
+                                        println!("[NETWORK] Deserialized block {} from {}", block.index, addr);
+
+                                        // Add the block to our chain if we don't have it
+                                        if let Some(blockchain_ref) = &blockchain {
+                                            if let Ok(mut blockchain) = blockchain_ref.lock() {
+                                                let current_height = blockchain.chain.len() as u64 - 1;
+
+                                                if block.index > current_height {
+                                                    // Validate and add the block
+                                                    match blockchain.add_block(block.clone()) {
+                                                        Ok(_) => {
+                                                            println!("[NETWORK] Added block {} to chain", block.index);
+                                                        },
+                                                        Err(e) => {
+                                                            println!("[NETWORK] Error adding block {}: {}", block.index, e);
+                                                        }
+                                                    }
+                                                } else {
+                                                    println!("[NETWORK] Already have block {}", block.index);
+                                                }
+                                            }
+                                        }
+                                    },
+                                    Err(e) => {
+                                        println!("[NETWORK] Error deserializing block data: {}", e);
+                                    }
                                 }
                             },
                             Message::NewBlock(hash) => {
