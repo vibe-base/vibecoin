@@ -3,12 +3,30 @@
 
 use crate::types::error::VibecoinError;
 use crate::network::bootstrap::get_bootstrap_addresses;
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream, IpAddr};
 use std::io::{Read, Write};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+
+/// Get all local IP addresses
+fn get_local_ips() -> HashSet<IpAddr> {
+    let mut ips = HashSet::new();
+
+    // Add localhost
+    ips.insert("127.0.0.1".parse().unwrap());
+    ips.insert("::1".parse().unwrap());
+
+    // Try to get all network interfaces
+    if let Ok(interfaces) = get_if_addrs::get_if_addrs() {
+        for interface in interfaces {
+            ips.insert(interface.ip());
+        }
+    }
+
+    ips
+}
 
 /// Network server configuration
 #[derive(Debug)]
@@ -54,6 +72,10 @@ impl NetworkServer {
         println!("[NETWORK] Listening on {}", self.config.listen_addr);
         println!("[NETWORK] Server config: {:?}", self.config);
 
+        // Get our local IP addresses to prevent self-connections
+        let local_ips = get_local_ips();
+        println!("[NETWORK] Local IPs: {:?}", local_ips);
+
         // Start listener
         let listener = TcpListener::bind(self.config.listen_addr)
             .map_err(|e| VibecoinError::IoError(e))?;
@@ -96,11 +118,20 @@ impl NetworkServer {
             }
         });
 
+        // Get local IPs to prevent self-connections
+        let local_ips = get_local_ips();
+
         // Connect to seed nodes if provided
         if !self.config.seed_nodes.is_empty() {
             println!("[NETWORK] Connecting to seed nodes:");
             for seed in &self.config.seed_nodes {
                 println!("[NETWORK] Seed node: {}", seed);
+
+                // Check if this is a self-connection
+                if local_ips.contains(&seed.ip()) {
+                    println!("[NETWORK] Skipping seed node {} (self-connection)", seed);
+                    continue;
+                }
 
                 // Try a direct connection first to test connectivity
                 println!("[NETWORK] Testing direct connection to {}", seed);
@@ -120,6 +151,12 @@ impl NetworkServer {
                 println!("[NETWORK] Connecting to bootstrap peers:");
                 for peer in &bootstrap_peers {
                     println!("[NETWORK] Bootstrap peer: {}", peer);
+
+                    // Check if this is a self-connection
+                    if local_ips.contains(&peer.ip()) {
+                        println!("[NETWORK] Skipping bootstrap peer {} (self-connection)", peer);
+                        continue;
+                    }
 
                     // Try a direct connection first to test connectivity
                     println!("[NETWORK] Testing direct connection to {}", peer);
@@ -246,6 +283,19 @@ impl NetworkServer {
     pub fn connect_to_peer(&self, addr: SocketAddr) {
         let peers = Arc::clone(&self.peers);
 
+        // Check if we're already connected to this peer
+        if peers.lock().unwrap().contains(&addr) {
+            println!("[NETWORK] Already connected to {}, skipping", addr);
+            return;
+        }
+
+        // Check if this is a self-connection
+        let local_ips = get_local_ips();
+        if local_ips.contains(&addr.ip()) && addr.port() == self.config.listen_addr.port() {
+            println!("[NETWORK] Skipping connection to self: {}", addr);
+            return;
+        }
+
         println!("[NETWORK] Attempting to connect to peer: {}", addr);
 
         thread::spawn(move || {
@@ -313,6 +363,21 @@ fn handle_connection(
     peers: Arc<Mutex<HashSet<SocketAddr>>>,
 ) -> Result<(), VibecoinError> {
     println!("[NETWORK] Setting up connection handler for {}", addr);
+
+    // Check if this is a self-connection
+    let local_ips = get_local_ips();
+    let local_addr = match stream.local_addr() {
+        Ok(addr) => addr,
+        Err(e) => {
+            println!("[NETWORK] Error getting local address: {}", e);
+            return Err(VibecoinError::IoError(e));
+        }
+    };
+
+    if local_ips.contains(&addr.ip()) && local_addr.port() == addr.port() {
+        println!("[NETWORK] Detected self-connection from {}, closing", addr);
+        return Ok(());
+    }
 
     // Set timeouts
     match stream.set_read_timeout(Some(Duration::from_secs(30))) {
