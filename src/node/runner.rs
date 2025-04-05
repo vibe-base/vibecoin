@@ -94,16 +94,17 @@ impl Node {
         // Create genesis block
         let genesis = Blockchain::create_genesis_block()?;
 
+        // Load or create the miner wallet
+        let miner_wallet = Wallet::load_or_create(&config.wallet_path, &config.wallet_password)?;
+        println!("Miner address: {}", hex::encode(miner_wallet.get_address()));
+
         // Create blockchain
         let blockchain = Blockchain::new(
             genesis,
             config.difficulty,
-            poh.clone()
+            poh.clone(),
+            miner_wallet.get_address()
         );
-
-        // Load or create the miner wallet
-        let miner_wallet = Wallet::load_or_create(&config.wallet_path, &config.wallet_password)?;
-        println!("Miner address: {}", hex::encode(miner_wallet.get_address()));
 
         // Create transaction pool
         let mempool = TransactionPool::new();
@@ -275,11 +276,19 @@ impl Node {
         println!("Mining block {} with {} transactions...", block.index, transactions.len());
         let start_time = Instant::now();
 
+        // Get the current slot number
+        let slot_number = 0; // Default to slot 0
+
+        // Get the miner key
+        let miner_key = self.miner_wallet.get_address();
+
         // Mine the block
         pow::mine_block(
             &mut block,
             self.config.difficulty,
             &mut self.poh_generator,
+            slot_number,
+            miner_key,
             None,
             Some(Duration::from_secs(60))
         )?;

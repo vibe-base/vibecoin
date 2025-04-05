@@ -18,6 +18,11 @@ pub enum VibecoinError {
     BlockchainError(String),
     NetworkError(String),
     SerializationError(String),
+    InvalidBlock,
+    InvalidState,
+    NotSlotLeader,
+    InvalidSlot,
+    SlotExpired,
 }
 
 impl std::error::Error for VibecoinError {}
@@ -41,6 +46,11 @@ impl fmt::Display for VibecoinError {
             VibecoinError::BlockchainError(msg) => write!(f, "Blockchain error: {}", msg),
             VibecoinError::NetworkError(msg) => write!(f, "Network error: {}", msg),
             VibecoinError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
+            VibecoinError::InvalidBlock => write!(f, "Invalid block"),
+            VibecoinError::InvalidState => write!(f, "Invalid blockchain state"),
+            VibecoinError::NotSlotLeader => write!(f, "Not the slot leader"),
+            VibecoinError::InvalidSlot => write!(f, "Invalid slot"),
+            VibecoinError::SlotExpired => write!(f, "Slot has expired"),
         }
     }
 }
