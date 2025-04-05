@@ -2,7 +2,6 @@
 // For now, we're using the simple network implementation in src/network/simple.rs
 
 use crate::types::error::VibecoinError;
-use crate::network::bootstrap::get_bootstrap_addresses;
 use std::net::{SocketAddr, TcpListener, TcpStream, IpAddr};
 use std::io::{Read, Write};
 use std::collections::HashSet;
@@ -11,8 +10,6 @@ use std::thread;
 use std::time::Duration;
 use crate::network::protocol::{Message, parse_message, format_message};
 use crate::ledger::state::Blockchain;
-use rand::thread_rng;
-use rand::Rng;
 
 /// Get all local IP addresses
 fn get_local_ips() -> HashSet<IpAddr> {

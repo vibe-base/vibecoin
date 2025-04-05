@@ -1,6 +1,5 @@
 use crate::types::primitives::Hash;
 use crate::types::error::VibecoinError;
-use crate::ledger::block::Block;
 use crate::consensus::poh::ProofOfHistory;
 use crate::consensus::pow::{self, Difficulty};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -124,7 +123,7 @@ impl SlotManager {
     }
 
     // Determine if the node is the leader for the current slot based on PoW solution
-    pub fn is_leader(&self, miner_key: &Hash, pow_solution: &Hash, difficulty: Difficulty) -> bool {
+    pub fn is_leader(&self, _miner_key: &Hash, pow_solution: &Hash, difficulty: Difficulty) -> bool {
         // Check if the PoW solution meets the difficulty requirement
         if !pow::meets_difficulty(pow_solution, difficulty) {
             return false;

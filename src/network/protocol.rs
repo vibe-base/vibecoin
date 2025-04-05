@@ -3,7 +3,6 @@ use crate::types::error::VibecoinError;
 use crate::ledger::block::Block;
 use crate::ledger::transaction::Transaction;
 use crate::ledger::state::BlockchainState;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// Network protocol message types

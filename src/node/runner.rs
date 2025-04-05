@@ -110,7 +110,7 @@ impl Node {
         let mempool = TransactionPool::new();
 
         // Initialize network server if networking is enabled
-        let mut network = if config.enable_networking {
+        let network = if config.enable_networking {
             // Determine seed nodes - use provided ones or bootstrap peers
             let seed_nodes = if config.seed_nodes.is_empty() {
                 // Use bootstrap peers if no seed nodes are provided

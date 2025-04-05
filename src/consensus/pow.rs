@@ -119,7 +119,7 @@ pub fn verify_pow(block: &Block, difficulty: Difficulty) -> Result<(), VibecoinE
 }
 
 // Verify that the PoH proof in the block is valid
-pub fn verify_poh_proof(block: &Block, poh_state: &ProofOfHistory) -> Result<(), VibecoinError> {
+pub fn verify_poh_proof(block: &Block, _poh_state: &ProofOfHistory) -> Result<(), VibecoinError> {
     // Genesis block doesn't need PoH proof
     if block.index == 0 {
         return Ok(());
