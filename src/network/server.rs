@@ -119,19 +119,57 @@ impl NetworkServer {
 
     /// Stop the network server
     pub fn stop(&self) {
-        println!("Network server stopped (placeholder)");
+        println!("Stopping network server...");
+
+        // In a real implementation, we would gracefully close all connections
+        // For now, we just clear the peers list
+        let mut peers = self.peers.lock().unwrap();
+        let peer_count = peers.len();
+        peers.clear();
+
+        println!("Network server stopped, disconnected from {} peers", peer_count);
     }
 
     /// Broadcast a block to all peers
     pub fn broadcast_block(&self, block_hash: &[u8; 32]) -> Result<usize, VibecoinError> {
-        println!("Broadcasting block {} (placeholder)", hex::encode(block_hash));
-        Ok(0) // No peers yet
+        let peers = self.peers.lock().unwrap();
+        let peer_count = peers.len();
+
+        if peer_count == 0 {
+            println!("No peers to broadcast block {}", hex::encode(block_hash));
+            return Ok(0);
+        }
+
+        println!("Broadcasting block {} to {} peers", hex::encode(block_hash), peer_count);
+
+        // In a real implementation, we would actually send the block to all peers
+        // For now, we just log it
+        for peer in peers.iter() {
+            println!("Would send block {} to {}", hex::encode(block_hash), peer);
+        }
+
+        Ok(peer_count)
     }
 
     /// Broadcast a transaction to all peers
     pub fn broadcast_transaction(&self, tx_hash: &[u8; 32]) -> Result<usize, VibecoinError> {
-        println!("Broadcasting transaction {} (placeholder)", hex::encode(tx_hash));
-        Ok(0) // No peers yet
+        let peers = self.peers.lock().unwrap();
+        let peer_count = peers.len();
+
+        if peer_count == 0 {
+            println!("No peers to broadcast transaction {}", hex::encode(tx_hash));
+            return Ok(0);
+        }
+
+        println!("Broadcasting transaction {} to {} peers", hex::encode(tx_hash), peer_count);
+
+        // In a real implementation, we would actually send the transaction to all peers
+        // For now, we just log it
+        for peer in peers.iter() {
+            println!("Would send transaction {} to {}", hex::encode(tx_hash), peer);
+        }
+
+        Ok(peer_count)
     }
 
     /// Get the number of connected peers
@@ -153,15 +191,26 @@ impl NetworkServer {
 
         thread::spawn(move || {
             match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
-                Ok(stream) => {
+                Ok(mut stream) => {
                     println!("Connected to {}", addr);
 
                     // Add to peers
                     peers.lock().unwrap().insert(addr);
 
-                    // Handle connection
-                    if let Err(e) = handle_connection(stream, addr, peers) {
-                        println!("Error handling connection to {}: {}", addr, e);
+                    // Send initial version message
+                    let version_msg = format!("version:VibeCoin/0.1.0:{}\n", std::process::id());
+                    match stream.write_all(version_msg.as_bytes()) {
+                        Ok(_) => {
+                            println!("Sent initial version message to {}", addr);
+                            // Handle connection
+                            if let Err(e) = handle_connection(stream, addr, peers) {
+                                println!("Error handling connection to {}: {}", addr, e);
+                            }
+                        },
+                        Err(e) => {
+                            println!("Error sending initial version to {}: {}", addr, e);
+                            peers.lock().unwrap().remove(&addr);
+                        }
                     }
                 },
                 Err(e) => {
@@ -201,12 +250,24 @@ fn handle_connection(
                 let message = String::from_utf8_lossy(&buffer[0..n]);
                 println!("Received from {}: {}", addr, message);
 
-                // Echo back
-                if let Err(e) = stream.write_all(&buffer[0..n]) {
-                    println!("Error writing to {}: {}", addr, e);
-                    // Remove from peers
-                    peers.lock().unwrap().remove(&addr);
-                    break;
+                // Send a version message if this is a new connection
+                if message.starts_with("version") || n < 10 {
+                    // Send version message
+                    let version_msg = format!("version:VibeCoin/0.1.0:{}\n", std::process::id());
+                    if let Err(e) = stream.write_all(version_msg.as_bytes()) {
+                        println!("Error sending version to {}: {}", addr, e);
+                        peers.lock().unwrap().remove(&addr);
+                        break;
+                    }
+                    println!("Sent version message to {}", addr);
+                } else {
+                    // Echo back other messages
+                    if let Err(e) = stream.write_all(&buffer[0..n]) {
+                        println!("Error writing to {}: {}", addr, e);
+                        // Remove from peers
+                        peers.lock().unwrap().remove(&addr);
+                        break;
+                    }
                 }
             },
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
