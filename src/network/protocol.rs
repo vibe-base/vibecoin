@@ -156,7 +156,7 @@ pub fn parse_message(msg: &str) -> Result<Message, VibecoinError> {
                 previous_hash: [0u8; 32], // Will be filled in later
                 timestamp: 0,             // Will be filled in later
                 nonce: 0,                 // Will be filled in later
-                transactions: Vec::with_capacity(tx_count),
+                transactions: Arc::new(Vec::with_capacity(tx_count)),
                 slot_number,
                 slot_leader: None,        // Will be filled in later
                 poh_proof: None,          // Will be filled in later
@@ -332,18 +332,15 @@ pub fn serialize_block(block: &Block) -> Vec<u8> {
     data.extend_from_slice(&(block.transactions.len() as u32).to_le_bytes());
     for tx in block.transactions.iter() {
         data.extend_from_slice(&tx.hash);
-        data.extend_from_slice(&tx.sender);
-        data.extend_from_slice(&tx.recipient);
+        data.extend_from_slice(&tx.from);
+        data.extend_from_slice(&tx.to);
         data.extend_from_slice(&tx.amount.to_le_bytes());
         data.extend_from_slice(&tx.timestamp.to_le_bytes());
 
-        // Add signature if present
-        if let Some(sig) = tx.signature {
-            data.push(1); // Indicator that signature is present
-            data.extend_from_slice(&sig);
-        } else {
-            data.push(0); // Indicator that signature is not present
-        }
+        // Add signature
+        data.push(1); // Signature is always present
+        let sig_ref: &[u8; 64] = &tx.signature;
+        data.extend_from_slice(sig_ref);
     }
 
     // Add block hash
@@ -447,14 +444,14 @@ pub fn deserialize_block(data: &[u8]) -> Result<Block, VibecoinError> {
         hash.copy_from_slice(&data[pos..pos+32]);
         pos += 32;
 
-        // Read sender
-        let mut sender = [0u8; 32];
-        sender.copy_from_slice(&data[pos..pos+32]);
+        // Read from address
+        let mut from = [0u8; 32];
+        from.copy_from_slice(&data[pos..pos+32]);
         pos += 32;
 
-        // Read recipient
-        let mut recipient = [0u8; 32];
-        recipient.copy_from_slice(&data[pos..pos+32]);
+        // Read to address
+        let mut to = [0u8; 32];
+        to.copy_from_slice(&data[pos..pos+32]);
         pos += 32;
 
         // Read amount
@@ -473,28 +470,22 @@ pub fn deserialize_block(data: &[u8]) -> Result<Block, VibecoinError> {
         let has_signature = data[pos] == 1;
         pos += 1;
 
-        let signature = if has_signature {
-            if pos + 64 > data.len() {
-                return Err(VibecoinError::NetworkError("Data too short for signature".to_string()));
-            }
+        if !has_signature || pos + 64 > data.len() {
+            return Err(VibecoinError::NetworkError("Data too short for signature".to_string()));
+        }
 
-            let mut sig = [0u8; 64];
-            sig.copy_from_slice(&data[pos..pos+64]);
-            pos += 64;
-
-            Some(sig)
-        } else {
-            None
-        };
+        let mut sig = [0u8; 64];
+        sig.copy_from_slice(&data[pos..pos+64]);
+        pos += 64;
 
         // Create transaction
         let tx = Transaction {
             hash,
-            sender,
-            recipient,
+            from,
+            to,
             amount,
             timestamp: tx_timestamp,
-            signature,
+            signature: Arc::new(sig),
         };
 
         transactions.push(tx);
@@ -515,7 +506,7 @@ pub fn deserialize_block(data: &[u8]) -> Result<Block, VibecoinError> {
         timestamp,
         hash,
         nonce,
-        transactions,
+        transactions: Arc::new(transactions),
         slot_number,
         slot_leader,
         poh_proof,

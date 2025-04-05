@@ -227,8 +227,26 @@ impl NetworkServer {
 
         println!("[NETWORK] Broadcasting block {} to {} peers", hex::encode(block_hash), peer_count);
 
+        // Get the block from the blockchain
+        let block_to_send = if let Some(blockchain_ref) = &self.blockchain {
+            if let Ok(blockchain) = blockchain_ref.lock() {
+                blockchain.chain.iter().find(|b| b.hash == *block_hash).cloned()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if block_to_send.is_none() {
+            println!("[NETWORK] Block {} not found in blockchain", hex::encode(block_hash));
+            return Ok(0);
+        }
+
+        let block = block_to_send.unwrap();
+
         // Create the newblock message
-        let newblock_msg = format!("newblock:{}\n", hex::encode(block_hash));
+        let newblock_msg = format_message(&Message::NewBlock(*block_hash));
 
         // Send the message to all peers
         let mut success_count = 0;
@@ -241,11 +259,44 @@ impl NetworkServer {
                     // Send the newblock message
                     match stream.write_all(newblock_msg.as_bytes()) {
                         Ok(_) => {
-                            println!("[NETWORK] Successfully sent block {} to {}", hex::encode(block_hash), peer);
-                            success_count += 1;
+                            println!("[NETWORK] Successfully sent block announcement {} to {}", hex::encode(block_hash), peer);
+
+                            // Wait for a response (the peer might request the block)
+                            let mut response = [0; 1024];
+                            match stream.read(&mut response) {
+                                Ok(n) => {
+                                    let response_str = String::from_utf8_lossy(&response[0..n]);
+                                    println!("[NETWORK] Received response from {}: {}", peer, response_str.trim());
+
+                                    // Check if the peer is requesting the block
+                                    if response_str.contains("getblock") {
+                                        println!("[NETWORK] Peer {} requested block {}", peer, hex::encode(block_hash));
+
+                                        // Serialize the block
+                                        let block_data = crate::network::protocol::serialize_block(&block);
+
+                                        // Send the block data
+                                        let block_msg = format_message(&Message::BlockData(block_data));
+                                        println!("[NETWORK] Sending block data to {}", peer);
+
+                                        if let Err(e) = stream.write_all(block_msg.as_bytes()) {
+                                            println!("[NETWORK] Error sending block data to {}: {}", peer, e);
+                                        } else {
+                                            println!("[NETWORK] Successfully sent block data to {}", peer);
+                                            success_count += 1;
+                                        }
+                                    } else {
+                                        // Peer already has the block
+                                        success_count += 1;
+                                    }
+                                },
+                                Err(e) => {
+                                    println!("[NETWORK] Error reading response from {}: {}", peer, e);
+                                }
+                            }
                         },
                         Err(e) => {
-                            println!("[NETWORK] Error sending block to {}: {}", peer, e);
+                            println!("[NETWORK] Error sending block announcement to {}: {}", peer, e);
                         }
                     }
                 },
