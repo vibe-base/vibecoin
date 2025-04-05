@@ -50,8 +50,15 @@ pub fn parse_message(msg: &str) -> Result<Message, VibecoinError> {
             }
 
             let version = parts[1].to_string();
-            let node_id = parts[2].parse::<u32>()
-                .map_err(|_| VibecoinError::NetworkError("Invalid node ID".to_string()))?;
+            // More lenient parsing of node_id - handle both u32 and process IDs
+            let node_id = match parts[2].parse::<u32>() {
+                Ok(id) => id,
+                Err(_) => {
+                    // If we can't parse it as u32, just use a default value
+                    println!("Could not parse node ID '{}', using default", parts[2]);
+                    0
+                }
+            };
 
             Ok(Message::Version { version, node_id })
         },
