@@ -1,0 +1,17 @@
+[package]
+name = "vibecoin"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sha2 = "0.10.8"
+hex = "0.4.3"
+rayon = "1.8"  # For parallel processing
+blake3 = "1.5"  # Optional: faster hashing alternative
+rand = "0.8.5"  # For random number generation
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = 3
