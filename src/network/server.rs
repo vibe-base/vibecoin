@@ -35,7 +35,7 @@ pub struct NetworkServer {
     /// Configuration
     config: NetworkConfig,
     /// Connected peers
-    peers: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<SocketAddr>>>,
+    peers: Arc<Mutex<HashSet<SocketAddr>>>,
 }
 
 impl NetworkServer {
@@ -43,7 +43,7 @@ impl NetworkServer {
     pub fn new(config: NetworkConfig) -> Self {
         NetworkServer {
             config,
-            peers: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            peers: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -62,6 +62,7 @@ impl NetworkServer {
 
         // Start listener thread
         let listen_addr = self.config.listen_addr;
+        let peers = Arc::clone(&self.peers);
         thread::spawn(move || {
             println!("Listener thread started on {}", listen_addr);
 
@@ -70,9 +71,13 @@ impl NetworkServer {
                     Ok((stream, addr)) => {
                         println!("Accepted connection from {}", addr);
 
+                        // Add to peers
+                        peers.lock().unwrap().insert(addr);
+
                         // Handle connection in a new thread
+                        let peers_clone = Arc::clone(&peers);
                         thread::spawn(move || {
-                            if let Err(e) = handle_connection(stream, addr) {
+                            if let Err(e) = handle_connection(stream, addr, peers_clone) {
                                 println!("Error handling connection from {}: {}", addr, e);
                             }
                         });
@@ -94,7 +99,7 @@ impl NetworkServer {
             println!("Connecting to seed nodes:");
             for seed in &self.config.seed_nodes {
                 println!("  - {}", seed);
-                connect_to_peer(*seed);
+                self.connect_to_peer(*seed);
             }
         } else {
             // Use bootstrap peers if no seed nodes are provided
@@ -103,7 +108,7 @@ impl NetworkServer {
                 println!("Connecting to bootstrap peers:");
                 for peer in &bootstrap_peers {
                     println!("  - {}", peer);
-                    connect_to_peer(*peer);
+                    self.connect_to_peer(*peer);
                 }
             }
         }
@@ -141,29 +146,37 @@ impl NetworkServer {
     }
 }
 
-/// Connect to a peer
-fn connect_to_peer(addr: SocketAddr) {
-    thread::spawn(move || {
-        match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
-            Ok(stream) => {
-                println!("Connected to {}", addr);
+impl NetworkServer {
+    /// Connect to a peer
+    pub fn connect_to_peer(&self, addr: SocketAddr) {
+        let peers = Arc::clone(&self.peers);
 
-                // Handle connection
-                if let Err(e) = handle_connection(stream, addr) {
-                    println!("Error handling connection to {}: {}", addr, e);
+        thread::spawn(move || {
+            match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
+                Ok(stream) => {
+                    println!("Connected to {}", addr);
+
+                    // Add to peers
+                    peers.lock().unwrap().insert(addr);
+
+                    // Handle connection
+                    if let Err(e) = handle_connection(stream, addr, peers) {
+                        println!("Error handling connection to {}: {}", addr, e);
+                    }
+                },
+                Err(e) => {
+                    println!("Failed to connect to {}: {}", addr, e);
                 }
-            },
-            Err(e) => {
-                println!("Failed to connect to {}: {}", addr, e);
             }
-        }
-    });
+        });
+    }
 }
 
 /// Handle a connection
 fn handle_connection(
     mut stream: TcpStream,
     addr: SocketAddr,
+    peers: Arc<Mutex<HashSet<SocketAddr>>>,
 ) -> Result<(), VibecoinError> {
     // Set timeouts
     stream.set_read_timeout(Some(Duration::from_secs(30)))
@@ -179,6 +192,8 @@ fn handle_connection(
             Ok(0) => {
                 // Connection closed
                 println!("Connection closed by {}", addr);
+                // Remove from peers
+                peers.lock().unwrap().remove(&addr);
                 break;
             },
             Ok(n) => {
@@ -189,6 +204,8 @@ fn handle_connection(
                 // Echo back
                 if let Err(e) = stream.write_all(&buffer[0..n]) {
                     println!("Error writing to {}: {}", addr, e);
+                    // Remove from peers
+                    peers.lock().unwrap().remove(&addr);
                     break;
                 }
             },
@@ -198,6 +215,8 @@ fn handle_connection(
             },
             Err(e) => {
                 println!("Error reading from {}: {}", addr, e);
+                // Remove from peers
+                peers.lock().unwrap().remove(&addr);
                 break;
             }
         }
