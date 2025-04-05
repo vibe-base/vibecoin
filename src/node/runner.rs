@@ -158,6 +158,16 @@ impl Node {
         // Start the network server if enabled
         if let Some(network) = &self.network {
             println!("Starting network server...");
+
+            // Print bootstrap peers
+            let bootstrap_peers = get_bootstrap_addresses();
+            if !bootstrap_peers.is_empty() {
+                println!("Bootstrap peers available:");
+                for peer in &bootstrap_peers {
+                    println!("  - {}", peer);
+                }
+            }
+
             network.start()?;
             println!("Network server started");
         }
