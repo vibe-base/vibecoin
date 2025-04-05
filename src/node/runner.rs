@@ -109,7 +109,7 @@ impl Node {
         let mempool = TransactionPool::new();
 
         // Initialize network server if networking is enabled
-        let network = if config.enable_networking {
+        let mut network = if config.enable_networking {
             // Determine seed nodes - use provided ones or bootstrap peers
             let seed_nodes = if config.seed_nodes.is_empty() {
                 // Use bootstrap peers if no seed nodes are provided
@@ -117,6 +117,11 @@ impl Node {
             } else {
                 config.seed_nodes.clone()
             };
+
+            println!("Initializing network with {} seed nodes", seed_nodes.len());
+            for seed in &seed_nodes {
+                println!("  - {}", seed);
+            }
 
             // Create network configuration
             let network_config = NetworkConfig {
@@ -134,6 +139,13 @@ impl Node {
             println!("Bootstrap peers available:");
             for peer in get_bootstrap_addresses() {
                 println!("  - {}", peer);
+            }
+
+            // Start the network server
+            if let Err(e) = server.start() {
+                println!("Error starting network server: {}", e);
+            } else {
+                println!("Network server started successfully");
             }
 
             Some(server)
@@ -161,21 +173,9 @@ impl Node {
         println!("Difficulty: {}", self.config.difficulty);
         println!("Mining enabled: {}", self.config.mining_enabled);
 
-        // Start the network server if enabled
-        if let Some(network) = &self.network {
-            println!("Starting network server...");
-
-            // Print bootstrap peers
-            let bootstrap_peers = get_bootstrap_addresses();
-            if !bootstrap_peers.is_empty() {
-                println!("Bootstrap peers available:");
-                for peer in &bootstrap_peers {
-                    println!("  - {}", peer);
-                }
-            }
-
-            network.start()?;
-            println!("Network server started");
+        // Network server is already started in the constructor
+        if let Some(_) = &self.network {
+            println!("Network is enabled");
         }
 
         self.running = true;
