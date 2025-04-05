@@ -109,6 +109,14 @@ impl NetworkServer {
                 for peer in &bootstrap_peers {
                     println!("  - {}", peer);
                     println!("Attempting to connect to {}", peer);
+
+                    // Try to connect to the peer
+                    match std::net::TcpStream::connect_timeout(peer, std::time::Duration::from_secs(1)) {
+                        Ok(_) => println!("Direct connection to {} succeeded", peer),
+                        Err(e) => println!("Direct connection to {} failed: {}", peer, e),
+                    }
+
+                    // Connect using our network implementation
                     self.connect_to_peer(*peer);
                 }
             }
