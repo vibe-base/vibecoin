@@ -120,7 +120,7 @@ impl Node {
 
             // Create network configuration
             let network_config = NetworkConfig {
-                listen_addr: config.p2p_listen_addr.unwrap_or_else(|| "127.0.0.1:8333".parse().unwrap()),
+                listen_addr: config.p2p_listen_addr.unwrap_or_else(|| "0.0.0.0:8333".parse().unwrap()),
                 seed_nodes,
                 user_agent: format!("VibeCoin/0.1.0 ({})", config.wallet_path),
             };
@@ -128,7 +128,7 @@ impl Node {
             // Create the network server
             let server = NetworkServer::new(network_config);
             println!("Network server initialized, listening on {}",
-                     config.p2p_listen_addr.unwrap_or_else(|| "127.0.0.1:8333".parse().unwrap()));
+                     config.p2p_listen_addr.unwrap_or_else(|| "0.0.0.0:8333".parse().unwrap()));
 
             Some(server)
         } else {

@@ -18,7 +18,7 @@ pub struct NetworkConfig {
 impl Default for NetworkConfig {
     fn default() -> Self {
         NetworkConfig {
-            listen_addr: "127.0.0.1:8333".parse().unwrap(),
+            listen_addr: "0.0.0.0:8333".parse().unwrap(),
             seed_nodes: Vec::new(),
             user_agent: "VibeCoin/0.1.0".to_string(),
         }

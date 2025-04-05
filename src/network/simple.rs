@@ -18,7 +18,7 @@ pub struct SimpleNetworkConfig {
 impl Default for SimpleNetworkConfig {
     fn default() -> Self {
         SimpleNetworkConfig {
-            listen_addr: "127.0.0.1:8333".parse().unwrap(),
+            listen_addr: "0.0.0.0:8333".parse().unwrap(),
             seed_nodes: Vec::new(),
         }
     }

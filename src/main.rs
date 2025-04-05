@@ -34,7 +34,7 @@ fn main() {
         wallet_path: "config/node_wallet.json".to_string(),
         wallet_password: "password".to_string(),
         enable_networking: true,      // Enable networking
-        p2p_listen_addr: Some("127.0.0.1:8333".parse().unwrap()),
+        p2p_listen_addr: Some("0.0.0.0:8333".parse().unwrap()),
         seed_nodes: Vec::new(),
         max_inbound: 125,
         max_outbound: 8,
