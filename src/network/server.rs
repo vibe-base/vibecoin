@@ -98,47 +98,70 @@ impl NetworkServer {
 
         // Connect to seed nodes if provided
         if !self.config.seed_nodes.is_empty() {
-            println!("Connecting to seed nodes:");
+            println!("[NETWORK] Connecting to seed nodes:");
             for seed in &self.config.seed_nodes {
-                println!("  - {}", seed);
+                println!("[NETWORK] Seed node: {}", seed);
+
+                // Try a direct connection first to test connectivity
+                println!("[NETWORK] Testing direct connection to {}", seed);
+                match std::net::TcpStream::connect_timeout(seed, std::time::Duration::from_secs(1)) {
+                    Ok(_) => println!("[NETWORK] Direct connection to {} succeeded", seed),
+                    Err(e) => println!("[NETWORK] Direct connection to {} failed: {} ({})", seed, e, e.kind()),
+                }
+
+                // Connect using our network implementation
+                println!("[NETWORK] Initiating connection to seed node {}", seed);
                 self.connect_to_peer(*seed);
             }
         } else {
             // Use bootstrap peers if no seed nodes are provided
             let bootstrap_peers = get_bootstrap_addresses();
             if !bootstrap_peers.is_empty() {
-                println!("Connecting to bootstrap peers:");
+                println!("[NETWORK] Connecting to bootstrap peers:");
                 for peer in &bootstrap_peers {
-                    println!("  - {}", peer);
-                    println!("Attempting to connect to {}", peer);
+                    println!("[NETWORK] Bootstrap peer: {}", peer);
 
-                    // Try to connect to the peer
+                    // Try a direct connection first to test connectivity
+                    println!("[NETWORK] Testing direct connection to {}", peer);
                     match std::net::TcpStream::connect_timeout(peer, std::time::Duration::from_secs(1)) {
-                        Ok(_) => println!("Direct connection to {} succeeded", peer),
-                        Err(e) => println!("Direct connection to {} failed: {}", peer, e),
+                        Ok(_) => println!("[NETWORK] Direct connection to {} succeeded", peer),
+                        Err(e) => println!("[NETWORK] Direct connection to {} failed: {} ({})", peer, e, e.kind()),
                     }
 
                     // Connect using our network implementation
+                    println!("[NETWORK] Initiating connection to bootstrap peer {}", peer);
                     self.connect_to_peer(*peer);
                 }
+            } else {
+                println!("[NETWORK] No bootstrap peers available");
             }
         }
 
-        println!("Network server started");
+        println!("[NETWORK] Network server started");
         Ok(())
     }
 
     /// Stop the network server
     pub fn stop(&self) {
-        println!("Stopping network server...");
+        println!("[NETWORK] Stopping network server...");
 
         // In a real implementation, we would gracefully close all connections
         // For now, we just clear the peers list
         let mut peers = self.peers.lock().unwrap();
         let peer_count = peers.len();
-        peers.clear();
 
-        println!("Network server stopped, disconnected from {} peers", peer_count);
+        if peer_count > 0 {
+            println!("[NETWORK] Disconnecting from {} peers", peer_count);
+            for peer in peers.iter() {
+                println!("[NETWORK] Disconnecting from {}", peer);
+            }
+            peers.clear();
+            println!("[NETWORK] All peers disconnected");
+        } else {
+            println!("[NETWORK] No peers to disconnect from");
+        }
+
+        println!("[NETWORK] Network server stopped");
     }
 
     /// Broadcast a block to all peers
@@ -147,18 +170,22 @@ impl NetworkServer {
         let peer_count = peers.len();
 
         if peer_count == 0 {
-            println!("No peers to broadcast block {}", hex::encode(block_hash));
+            println!("[NETWORK] No peers to broadcast block {}", hex::encode(block_hash));
             return Ok(0);
         }
 
-        println!("Broadcasting block {} to {} peers", hex::encode(block_hash), peer_count);
+        println!("[NETWORK] Broadcasting block {} to {} peers", hex::encode(block_hash), peer_count);
 
         // In a real implementation, we would actually send the block to all peers
         // For now, we just log it
         for peer in peers.iter() {
-            println!("Would send block {} to {}", hex::encode(block_hash), peer);
+            println!("[NETWORK] Would send block {} to {}", hex::encode(block_hash), peer);
+            // In a real implementation, we would do something like:
+            // let msg = format!("block:{}", hex::encode(block_hash));
+            // send_message_to_peer(peer, msg);
         }
 
+        println!("[NETWORK] Block {} broadcast complete", hex::encode(block_hash));
         Ok(peer_count)
     }
 
@@ -168,30 +195,49 @@ impl NetworkServer {
         let peer_count = peers.len();
 
         if peer_count == 0 {
-            println!("No peers to broadcast transaction {}", hex::encode(tx_hash));
+            println!("[NETWORK] No peers to broadcast transaction {}", hex::encode(tx_hash));
             return Ok(0);
         }
 
-        println!("Broadcasting transaction {} to {} peers", hex::encode(tx_hash), peer_count);
+        println!("[NETWORK] Broadcasting transaction {} to {} peers", hex::encode(tx_hash), peer_count);
 
         // In a real implementation, we would actually send the transaction to all peers
         // For now, we just log it
         for peer in peers.iter() {
-            println!("Would send transaction {} to {}", hex::encode(tx_hash), peer);
+            println!("[NETWORK] Would send transaction {} to {}", hex::encode(tx_hash), peer);
+            // In a real implementation, we would do something like:
+            // let msg = format!("tx:{}", hex::encode(tx_hash));
+            // send_message_to_peer(peer, msg);
         }
 
+        println!("[NETWORK] Transaction {} broadcast complete", hex::encode(tx_hash));
         Ok(peer_count)
     }
 
     /// Get the number of connected peers
     pub fn get_peer_count(&self) -> usize {
-        self.peers.lock().unwrap().len()
+        let count = self.peers.lock().unwrap().len();
+        println!("[NETWORK] Current peer count: {}", count);
+        count
     }
 
     /// Get information about all connected peers
     pub fn get_peer_info(&self) -> Vec<String> {
         let peers = self.peers.lock().unwrap();
-        peers.iter().map(|addr| addr.to_string()).collect()
+        println!("[NETWORK] Getting info for {} peers", peers.len());
+
+        let peer_info: Vec<String> = peers.iter().map(|addr| addr.to_string()).collect();
+
+        if !peer_info.is_empty() {
+            println!("[NETWORK] Connected peers:");
+            for peer in &peer_info {
+                println!("[NETWORK]   - {}", peer);
+            }
+        } else {
+            println!("[NETWORK] No connected peers");
+        }
+
+        peer_info
     }
 }
 
@@ -266,46 +312,67 @@ fn handle_connection(
     addr: SocketAddr,
     peers: Arc<Mutex<HashSet<SocketAddr>>>,
 ) -> Result<(), VibecoinError> {
+    println!("[NETWORK] Setting up connection handler for {}", addr);
+
     // Set timeouts
-    stream.set_read_timeout(Some(Duration::from_secs(30)))
-        .map_err(|e| VibecoinError::IoError(e))?;
-    stream.set_write_timeout(Some(Duration::from_secs(30)))
-        .map_err(|e| VibecoinError::IoError(e))?;
+    match stream.set_read_timeout(Some(Duration::from_secs(30))) {
+        Ok(_) => println!("[NETWORK] Set read timeout for {}", addr),
+        Err(e) => return Err(VibecoinError::IoError(e)),
+    }
+
+    match stream.set_write_timeout(Some(Duration::from_secs(30))) {
+        Ok(_) => println!("[NETWORK] Set write timeout for {}", addr),
+        Err(e) => return Err(VibecoinError::IoError(e)),
+    }
 
     // Simple message loop
     let mut buffer = [0; 1024];
+    println!("[NETWORK] Starting message loop for {}", addr);
 
     loop {
         match stream.read(&mut buffer) {
             Ok(0) => {
                 // Connection closed
-                println!("Connection closed by {}", addr);
+                println!("[NETWORK] Connection closed by {}", addr);
                 // Remove from peers
                 peers.lock().unwrap().remove(&addr);
+                println!("[NETWORK] Removed {} from peers list", addr);
                 break;
             },
             Ok(n) => {
                 // Process message
                 let message = String::from_utf8_lossy(&buffer[0..n]);
-                println!("Received from {}: {}", addr, message);
+                println!("[NETWORK] Received from {}: {}", addr, message.trim());
 
                 // Send a version message if this is a new connection
                 if message.starts_with("version") || n < 10 {
                     // Send version message
                     let version_msg = format!("version:VibeCoin/0.1.0:{}\n", std::process::id());
-                    if let Err(e) = stream.write_all(version_msg.as_bytes()) {
-                        println!("Error sending version to {}: {}", addr, e);
-                        peers.lock().unwrap().remove(&addr);
-                        break;
+                    println!("[NETWORK] Sending version message to {}: {}", addr, version_msg.trim());
+
+                    match stream.write_all(version_msg.as_bytes()) {
+                        Ok(_) => println!("[NETWORK] Sent version message to {}", addr),
+                        Err(e) => {
+                            println!("[NETWORK] Error sending version to {}: {}", addr, e);
+                            println!("[NETWORK] Error kind: {:?}", e.kind());
+                            peers.lock().unwrap().remove(&addr);
+                            println!("[NETWORK] Removed {} from peers list", addr);
+                            break;
+                        }
                     }
-                    println!("Sent version message to {}", addr);
                 } else {
                     // Echo back other messages
-                    if let Err(e) = stream.write_all(&buffer[0..n]) {
-                        println!("Error writing to {}: {}", addr, e);
-                        // Remove from peers
-                        peers.lock().unwrap().remove(&addr);
-                        break;
+                    println!("[NETWORK] Echoing message back to {}", addr);
+                    match stream.write_all(&buffer[0..n]) {
+                        Ok(_) => println!("[NETWORK] Echoed message to {}", addr),
+                        Err(e) => {
+                            println!("[NETWORK] Error writing to {}: {}", addr, e);
+                            println!("[NETWORK] Error kind: {:?}", e.kind());
+                            // Remove from peers
+                            peers.lock().unwrap().remove(&addr);
+                            println!("[NETWORK] Removed {} from peers list", addr);
+                            break;
+                        }
                     }
                 }
             },
@@ -314,13 +381,16 @@ fn handle_connection(
                 thread::sleep(Duration::from_millis(100));
             },
             Err(e) => {
-                println!("Error reading from {}: {}", addr, e);
+                println!("[NETWORK] Error reading from {}: {}", addr, e);
+                println!("[NETWORK] Error kind: {:?}", e.kind());
                 // Remove from peers
                 peers.lock().unwrap().remove(&addr);
+                println!("[NETWORK] Removed {} from peers list", addr);
                 break;
             }
         }
     }
 
+    println!("[NETWORK] Connection handler for {} exiting", addr);
     Ok(())
 }
