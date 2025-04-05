@@ -130,6 +130,12 @@ impl Node {
             println!("Network server initialized, listening on {}",
                      config.p2p_listen_addr.unwrap_or_else(|| "0.0.0.0:8333".parse().unwrap()));
 
+            // Print bootstrap peers
+            println!("Bootstrap peers available:");
+            for peer in get_bootstrap_addresses() {
+                println!("  - {}", peer);
+            }
+
             Some(server)
         } else {
             println!("Networking disabled");

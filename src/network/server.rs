@@ -108,6 +108,7 @@ impl NetworkServer {
                 println!("Connecting to bootstrap peers:");
                 for peer in &bootstrap_peers {
                     println!("  - {}", peer);
+                    println!("Attempting to connect to {}", peer);
                     self.connect_to_peer(*peer);
                 }
             }
@@ -215,6 +216,7 @@ impl NetworkServer {
                 },
                 Err(e) => {
                     println!("Failed to connect to {}: {}", addr, e);
+                    println!("Error kind: {:?}", e.kind());
                 }
             }
         });
