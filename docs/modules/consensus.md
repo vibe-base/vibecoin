@@ -16,9 +16,11 @@ The PoW component requires miners to solve a computational puzzle to create new 
 
 #### Implementation Details
 
-- Uses a modified version of the Ethash algorithm
-- Difficulty adjusts dynamically based on network hash rate
-- Target block time: 15 seconds
+- Uses SHA-256 for block hash verification
+- Parallel mining with Rayon for efficient nonce search
+- Difficulty adjusts dynamically based on block times
+- Target block time: 15 seconds (configurable)
+- Implements longest chain rule with cumulative work comparison
 
 ### Proof of History (PoH)
 
@@ -31,8 +33,10 @@ The PoH component creates a historical record of events, providing:
 #### Implementation Details
 
 - Uses a sequential hash function (SHA-256)
-- Creates a verifiable delay function
-- Generates approximately 400,000 hashes per second
+- Creates a verifiable sequence of timestamps
+- Generates approximately 400,000 hashes per second (configurable)
+- Supports recording events within the hash chain
+- Includes verification of hash sequence integrity
 
 ### Hybrid Consensus
 
@@ -67,15 +71,24 @@ pub fn verify_block(block: Block) -> Result<bool, Error>;
 pub struct ConsensusConfig {
     /// Target block time in seconds
     pub target_block_time: u64,
-    
+
     /// Initial difficulty
     pub initial_difficulty: u64,
-    
+
+    /// Number of blocks to consider for difficulty adjustment
+    pub difficulty_adjustment_window: u64,
+
     /// PoH tick rate (hashes per second)
     pub poh_tick_rate: u64,
-    
+
     /// Maximum number of transactions per block
     pub max_transactions_per_block: usize,
+
+    /// Whether to enable mining
+    pub enable_mining: bool,
+
+    /// Number of mining threads to use
+    pub mining_threads: usize,
 }
 ```
 

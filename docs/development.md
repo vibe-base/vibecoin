@@ -32,13 +32,37 @@
 The Vibecoin project follows a modular architecture:
 
 - `src/` - Main source code directory
-  - `consensus/` - Consensus mechanism implementation
-  - `network/` - Networking and P2P communication
-  - `storage/` - Blockchain storage and state management
-  - `crypto/` - Cryptographic primitives
-  - `transaction/` - Transaction processing
-  - `api/` - API interfaces
-  - `cli/` - Command-line interface
+  - `lib.rs` - Library entry point
+  - `main.rs` - CLI entry point
+
+- `consensus/` - Consensus mechanism implementation
+  - `pow/` - Proof of Work implementation
+  - `poh/` - Proof of History implementation
+  - `validation/` - Block and transaction validation
+  - `mining/` - Block production and mempool
+  - `engine.rs` - Main consensus engine
+
+- `network/` - Networking and P2P communication
+  - `types/` - Network message types
+  - `peer/` - Peer connection management
+  - `service/` - Network service and message routing
+  - `codec/` - Message serialization and framing
+
+- `storage/` - Blockchain storage and state management
+  - `kv_store.rs` - Key-value store abstraction
+  - `block_store.rs` - Block storage
+  - `tx_store.rs` - Transaction storage
+  - `state_store.rs` - Account state storage
+  - `poh_store.rs` - Proof of History storage
+
+- `crypto/` - Cryptographic primitives
+  - `keys.rs` - Key generation and management
+  - `hash.rs` - Hashing functions
+  - `signer.rs` - Digital signatures
+
+- `docs/` - Project documentation
+  - `modules/` - Module-specific documentation
+  - `api/` - API documentation
 
 ## Contribution Guidelines
 

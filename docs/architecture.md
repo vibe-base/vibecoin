@@ -13,14 +13,23 @@ Vibecoin implements a hybrid consensus mechanism:
 - **Proof of Work (PoW)**: Provides security and fair distribution of tokens
 - **Proof of History (PoH)**: Enables high throughput and low latency by creating a historical record of events
 
+Our implementation includes:
+- Dynamic difficulty adjustment based on block times
+- Parallel mining using Rayon for efficient nonce search
+- PoH generator that creates a verifiable sequence of hashes
+- Fork choice rules for selecting the canonical chain
+
 ### Block Structure
 
 Each block in the Vibecoin blockchain contains:
 
-- Block header
-- Transactions
-- PoH sequence
-- PoW solution
+- Block height and hash
+- Previous block hash for chain linking
+- Timestamp for chronological ordering
+- Transaction list (as transaction IDs)
+- State root hash for account state verification
+- PoW solution (nonce and hash meeting difficulty target)
+- PoH sequence data for verifiable timestamps
 
 ### Gas-Based Architecture
 

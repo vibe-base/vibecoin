@@ -78,6 +78,46 @@ Comprehensive documentation is available in the [docs](./docs) directory:
 - [API Reference](./docs/api/README.md)
 - [Module Documentation](./docs/modules/README.md)
 
+## 🧩 Core Modules
+
+### Storage Module
+
+The [Storage Module](./storage/README.md) provides persistent storage for the blockchain using RocksDB:
+
+- **Key-Value Store**: Abstraction over RocksDB for data persistence
+- **Block Store**: Storage and retrieval of blockchain blocks
+- **Transaction Store**: Management of transaction records
+- **Account State**: Handling of account balances and state
+- **PoH Store**: Storage for Proof of History entries
+
+### Cryptography Module
+
+The [Cryptography Module](./crypto/README.md) implements essential cryptographic primitives:
+
+- **Key Generation**: Ed25519 keypair generation and management
+- **Digital Signatures**: Secure transaction signing and verification
+- **Hashing**: SHA-256 and double SHA-256 for various blockchain components
+- **Address Derivation**: Generation of account addresses from public keys
+
+### Network Module
+
+The [Network Module](./network/README.md) provides peer-to-peer communication:
+
+- **Peer Discovery**: Finding and connecting to other nodes
+- **Message Broadcasting**: Distributing blocks and transactions
+- **Connection Management**: Handling peer connections and reconnections
+- **Protocol Implementation**: Framed message protocol with serialization
+
+### Consensus Module
+
+The [Consensus Module](./consensus/README.md) implements our hybrid PoW/PoH mechanism:
+
+- **Proof of Work**: Mining algorithm with difficulty adjustment
+- **Proof of History**: Sequential hash chain for verifiable timestamps
+- **Block Validation**: Verification of blocks against consensus rules
+- **Fork Choice**: Rules for selecting the canonical blockchain
+- **Mining Engine**: Block production and transaction inclusion
+
 ## 🔍 Vobe Code
 
 Vibecoin was developed using **Vobe Code**, our proprietary development framework that enables rapid blockchain development with a focus on performance, security, and maintainability. Vobe Code provides:
@@ -97,4 +137,3 @@ We welcome contributions from the community! Please see our [Contributing Guide]
 
 Vibecoin is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
- 
