@@ -1,0 +1,22 @@
+Enhance Network Module with Message Routing and Peer Management
+
+This commit completes the VibeCoin network module implementation with:
+
+- Add SystemRouter to connect network messages to blockchain subsystems
+  (mempool, storage, consensus)
+- Implement PeerRegistry for comprehensive peer state tracking
+- Create PeerBroadcaster for efficient message broadcasting
+- Update PeerHandler to use the new components
+- Improve connection management with better state tracking
+- Add support for ping/pong latency measurement
+- Enhance error handling and reconnection logic
+
+The enhanced network module now provides:
+- Full message routing to appropriate subsystems
+- Thread-safe peer state management
+- Efficient broadcasting of blocks and transactions
+- Better connection health monitoring
+- Improved peer discovery and management
+
+This implementation completes the networking layer, providing a solid
+foundation for peer-to-peer communication in the VibeCoin blockchain.
