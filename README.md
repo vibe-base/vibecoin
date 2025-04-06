@@ -14,8 +14,6 @@
 
 Vibecoin is a revolutionary blockchain platform that combines the security of Proof-of-Work with the speed of Solana-style Proof of History. Built with a gas-based architecture, Vibecoin enables highly scalable, efficient, and truly decentralized applications for the future.
 
-Developed using **Vobe Code**, our proprietary development framework, Vibecoin represents the cutting edge of blockchain technology, offering unparalleled performance without compromising on security or decentralization.
-
 ## ✨ Key Features
 
 - **Hybrid Consensus**: Combines PoW security with PoH speed
