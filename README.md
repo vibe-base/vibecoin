@@ -97,9 +97,4 @@ We welcome contributions from the community! Please see our [Contributing Guide]
 
 Vibecoin is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
-## 📬 Contact
-
-- Website: [vibecoin.io](https://vibecoin.io)
-- Twitter: [@VibecoinOfficial](https://twitter.com/VibecoinOfficial)
-- Discord: [Vibecoin Community](https://discord.gg/vibecoin)
-- Email: team@vibecoin.io
+ 
