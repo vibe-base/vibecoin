@@ -1,0 +1,26 @@
+[package]
+name = "vibecoin"
+version = "0.1.0"
+edition = "2021"
+authors = ["Vibecoin Team"]
+description = "A next-generation blockchain combining Proof-of-Work with Solana-style Proof of History"
+
+[dependencies]
+rocksdb = "0.20.1"
+bincode = "1.3.3"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+log = "0.4"
+env_logger = "0.10"
+
+[dev-dependencies]
+tempfile = "3.5.0"
+criterion = "0.4"
+
+[lib]
+name = "vibecoin"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vibecoin"
+path = "src/main.rs"
