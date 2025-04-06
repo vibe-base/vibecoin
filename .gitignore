@@ -40,3 +40,8 @@ vendor/
 *.dll
 *.so
 *.dylib
+
+# Node data directories
+.vibecoin/
+.vibecoin-testnet/
+.vibecoin-devnet/
