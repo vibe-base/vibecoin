@@ -118,14 +118,17 @@ The [Consensus Module](./consensus/README.md) implements our hybrid PoW/PoH mech
 - **Fork Choice**: Rules for selecting the canonical blockchain
 - **Mining Engine**: Block production and transaction inclusion
 
-## 🔍 Vobe Code
+## 🔍 Vibecode
 
-Vibecoin was developed using **Vobe Code**, our proprietary development framework that enables rapid blockchain development with a focus on performance, security, and maintainability. Vobe Code provides:
+Vibecoin was developed through vibecoding, a process guided by flow, intuition, and mastery. Vibecode is the natural output when experienced software engineers build with rhythm, intention, and deep technical skill. The result is a blockchain that embodies:
 
-- Advanced static analysis tools
-- Performance optimization frameworks
-- Security-first development practices
-- Automated testing and verification
+- Clean, performant architecture
+
+- Battle-tested security practices
+
+- Thoughtful design for long-term maintainability
+
+- Code that feels as good as it runs
 
 The use of Vobe Code ensures that Vibecoin maintains the highest standards of code quality, with strict enforcement of best practices such as our 1000-line limit for Rust files.
 
