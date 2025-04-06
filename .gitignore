@@ -1,0 +1,42 @@
+# Mac OS specific files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Rust specific
+/target/
+**/*.rs.bk
+Cargo.lock
+debug/
+target/
+
+# IDE specific (VS Code, IntelliJ, etc)
+.idea/
+.vscode/
+*.swp
+*.swo
+.env
+
+# Rust profiling and debugging
+flamegraph.svg
+perf.data
+perf.data.old
+
+# Dependencies
+vendor/
+
+# Build artifacts
+*.pdb
+*.exe
+*.dll
+*.so
+*.dylib
