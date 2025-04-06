@@ -3,6 +3,7 @@
 // Export modules
 pub mod storage;
 pub mod crypto;
+pub mod network;
 
 // Initialize logging
 pub fn init_logger() {
