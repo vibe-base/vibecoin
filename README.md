@@ -118,6 +118,16 @@ The [Consensus Module](./consensus/README.md) implements our hybrid PoW/PoH mech
 - **Fork Choice**: Rules for selecting the canonical blockchain
 - **Mining Engine**: Block production and transaction inclusion
 
+### Mempool Module
+
+The [Mempool Module](./mempool/README.md) provides a thread-safe transaction pool:
+
+- **Transaction Validation**: Verification of transaction validity
+- **Prioritization**: Ordering transactions by gas price and timestamp
+- **Spam Prevention**: Limiting transactions per sender
+- **Memory Management**: Handling transaction lifecycle and expiration
+- **Thread Safety**: Concurrent access for high throughput
+
 ## 🔍 Vibecode
 
 Vibecoin was developed through vibecoding, a process guided by flow, intuition, and mastery. Vibecode is the natural output when experienced software engineers build with rhythm, intention, and deep technical skill. The result is a blockchain that embodies:

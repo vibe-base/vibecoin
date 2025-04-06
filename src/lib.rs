@@ -5,6 +5,7 @@ pub mod storage;
 pub mod crypto;
 pub mod network;
 pub mod consensus;
+pub mod mempool;
 
 // Initialize logging
 pub fn init_logger() {

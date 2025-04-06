@@ -20,9 +20,9 @@ The [Storage Module](storage.md) manages blockchain data storage and state manag
 
 The [Cryptography Module](crypto.md) provides cryptographic primitives and functions.
 
-### Transaction Module
+### Mempool Module
 
-The [Transaction Module](transaction.md) handles transaction validation, execution, and mempool management.
+The [Mempool Module](mempool.md) provides a thread-safe, prioritized transaction pool for pending transactions.
 
 ## Additional Modules
 

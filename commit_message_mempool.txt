@@ -1,0 +1,22 @@
+Implement Transaction Pool (Mempool) Module
+
+This commit adds a comprehensive transaction pool (mempool) implementation:
+
+- Create thread-safe, prioritized transaction pool
+- Implement transaction validation against account state
+- Add gas price-based transaction prioritization
+- Implement spam prevention with per-sender limits
+- Add transaction lifecycle management (pending, included, expired)
+- Create comprehensive test suite for mempool functionality
+- Update documentation to include mempool module
+
+The mempool serves as the interface between the network and consensus
+layers, accepting transactions from users and the network, validating
+them, and providing them to block producers for inclusion in blocks.
+
+This implementation includes:
+- Efficient concurrent data structures for high throughput
+- Configurable limits for memory management
+- Transaction prioritization based on gas price
+- Comprehensive validation rules
+- Full test coverage for all functionality
