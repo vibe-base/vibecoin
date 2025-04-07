@@ -4,6 +4,43 @@
 
 The consensus module implements VibeCoin's hybrid Proof-of-Work (PoW) and Proof-of-History (PoH) consensus mechanism. This approach combines the security and fair distribution of PoW with the high throughput and verifiable timestamps of PoH.
 
+The module is responsible for:
+
+- Mining new blocks with a PoW nonce
+- Embedding verifiable PoH sequences for time-ordering
+- Validating blocks and applying them to the chain
+- Resolving forks based on cumulative work
+
+## Architecture
+
+```
+                  ┌─────────────────┐
+                  │  ConsensusEngine│
+                  └────────┬────────┘
+                           │
+                           ▼
+          ┌────────────────────────────────┐
+          │        Block Validation        │
+          └────────┬─────────────┬─────────┘
+                   │             │
+        ┌──────────┴──────────┐ │ ┌─────────────────┐
+        │    Block Mining     │ │ │   Fork Choice   │
+        └┬─────┬──────┬──────┬┘ │ └────────┬────────┘
+         │     │      │      │  │          │
+         ▼     ▼      ▼      ▼  │          ▼
+┌──────────┐ ┌───┐ ┌─────┐ ┌───┐│  ┌───────────────┐
+│PoW Mining│ │PoH│ │State│ │Diff││  │ Chain Selection│
+│          │ │Gen │ │Root │ │Adj ││  │               │
+└────┬─────┘ └─┬─┘ └──┬──┘ └─┬─┘│  └───────┬───────┘
+     │         │      │      │  │          │
+     └─────────┴──────┴──────┴──┴──────────┘
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │  Storage Module │
+                  └─────────────────┘
+```
+
 ## Components
 
 ### Proof of Work (pow/)
@@ -92,9 +129,30 @@ let engine = start_consensus(
 - **Performance**: Optimized mining with parallel nonce search
 - **Security**: Robust validation of all consensus rules
 
+## Block Structure
+
+Each block contains:
+
+- `height`: Block height
+- `prev_hash`: Hash of the previous block
+- `state_root`: Merkle root of the state trie
+- `tx_root`: Merkle root of the transactions
+- `timestamp`: Block timestamp
+- `poh_seq`: PoH sequence number
+- `poh_hash`: PoH hash
+- `nonce`: PoW nonce
+- `difficulty`: Block difficulty
+- `total_difficulty`: Cumulative difficulty of the chain
+
 ## Future Improvements
 
 - Sharding for parallel transaction processing
 - Stake-weighted PoH leader selection
 - Improved fork choice rules with finality gadgets
 - More sophisticated difficulty adjustment algorithm
+- Parallel transaction validation
+- Memory pool prioritization
+- ASIC-resistant PoW algorithm
+- Optimized PoH verification
+- Checkpointing for faster sync
+- Light client support

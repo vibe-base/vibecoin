@@ -34,6 +34,15 @@ pub struct Block {
 
     /// Proof of History sequence number
     pub poh_seq: u64,
+
+    /// Proof of History hash
+    pub poh_hash: Hash,
+
+    /// Block difficulty
+    pub difficulty: u64,
+
+    /// Total cumulative difficulty
+    pub total_difficulty: u128,
 }
 
 /// Error type for BlockStore operations
@@ -244,6 +253,9 @@ mod tests {
             state_root: [4; 32],
             nonce: 42,
             poh_seq: 100,
+            poh_hash: [5; 32],
+            difficulty: 1000,
+            total_difficulty: 1000,
         };
 
         // Store the block
@@ -291,6 +303,9 @@ mod tests {
                 state_root: [i as u8 + 2; 32],
                 nonce: 42 + i,
                 poh_seq: 100 + i,
+                poh_hash: [i as u8 + 3; 32],
+                difficulty: 1000 + i,
+                total_difficulty: 1000 + (i as u128 * 1000),
             };
 
             block_store.put_block(&block).unwrap();
