@@ -41,6 +41,12 @@ array-init = "2.1.0"
 toml = "0.7.3"
 structopt = "0.3.26"
 
+# Additional dependencies for state management
+scopeguard = "1.1.0"
+walkdir = "2.3.3"
+rand = "0.8.5"
+serde_json = "1.0.114"
+
 [dev-dependencies]
 tempfile = "3.5.0"
 criterion = "0.4"
