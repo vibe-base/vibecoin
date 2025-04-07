@@ -108,6 +108,11 @@ impl<'a> BlockValidator<'a> {
 
     /// Validate the proof of work
     fn validate_pow(&self, block: &Block, target: &Target) -> bool {
+        // For genesis block or the first block after genesis, we accept any PoW
+        if block.height == 0 || block.height == 1 {
+            return true;
+        }
+
         // Check if the block hash meets the target
         target.is_met_by(&block.hash)
     }
@@ -240,8 +245,8 @@ impl<'a> BlockValidator<'a> {
 
     /// Validate the Proof of History
     fn validate_poh(&self, block: &Block) -> bool {
-        // For genesis block, we accept any PoH
-        if block.height == 0 {
+        // For genesis block or the first block after genesis, we accept any PoH
+        if block.height == 0 || block.height == 1 {
             return true;
         }
 

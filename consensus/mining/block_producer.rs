@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use log::{error, info, warn};
+use sha2::Digest;
 
 use crate::storage::block_store::{Block, BlockStore};
 use crate::storage::tx_store::TxStore;
@@ -71,7 +72,7 @@ impl<'a> BlockProducer<'a> {
     }
 
     /// Create a block template
-    pub fn create_block_template(&self) -> BlockTemplate {
+    pub async fn create_block_template(&self) -> BlockTemplate {
         // Get pending transactions from the mempool
         let transactions = self.mempool.get_pending_transactions(
             self.config.max_transactions_per_block
@@ -92,6 +93,27 @@ impl<'a> BlockProducer<'a> {
             }
         };
 
+        // Calculate the transaction root
+        let tx_root = if selected_transactions.is_empty() {
+            // Empty transaction list has a special hash
+            crate::crypto::hash::sha256(b"empty_tx_root")
+        } else {
+            // Create a list of transaction hashes
+            let tx_hashes: Vec<crate::crypto::hash::Hash> = selected_transactions.iter()
+                .map(|tx| crate::crypto::hash::Hash::new(tx.tx_id))
+                .collect();
+
+            // Calculate the Merkle root
+            *self.calculate_tx_root(&tx_hashes).as_bytes()
+        };
+
+        // Get the current PoH sequence and hash
+        let (poh_seq, poh_hash) = {
+            // Lock the PoH generator to get the current state
+            let poh_gen = self.poh_generator.lock().await;
+            (poh_gen.sequence(), poh_gen.current_hash())
+        };
+
         // Create the block template
         BlockTemplate {
             height: self.chain_state.height + 1,
@@ -99,19 +121,62 @@ impl<'a> BlockProducer<'a> {
             timestamp: chrono::Utc::now().timestamp() as u64,
             transactions: selected_transactions,
             state_root,
-            tx_root: [0u8; 32], // Will be calculated when needed
-            poh_seq: 0, // Will be set when we have access to the PoH generator
-            poh_hash: [0u8; 32], // Will be calculated during mining
+            tx_root, // Use the calculated transaction root
+            poh_seq, // Use the current PoH sequence
+            poh_hash, // Use the current PoH hash
             target: Target::from_difficulty(self.chain_state.total_difficulty),
             total_difficulty: self.chain_state.total_difficulty as u128,
             miner: [0u8; 32], // Will be set by the miner
         }
     }
 
+    /// Calculate the transaction root (Merkle root of transactions)
+    fn calculate_tx_root(&self, tx_hashes: &[crate::crypto::hash::Hash]) -> crate::crypto::hash::Hash {
+        if tx_hashes.is_empty() {
+            // Empty transaction list has a special hash
+            return crate::crypto::hash::Hash::new(crate::crypto::hash::sha256(b"empty_tx_root"));
+        }
+
+        // Create leaf nodes from transaction hashes
+        let mut nodes: Vec<crate::crypto::hash::Hash> = tx_hashes.to_vec();
+
+        // Build the Merkle tree bottom-up
+        while nodes.len() > 1 {
+            let mut next_level = Vec::new();
+
+            // Process pairs of nodes
+            for chunk in nodes.chunks(2) {
+                let mut hasher = sha2::Sha256::new();
+
+                // Add the first hash
+                hasher.update(&chunk[0]);
+
+                // Add the second hash if it exists, otherwise duplicate the first
+                if chunk.len() > 1 {
+                    hasher.update(&chunk[1]);
+                } else {
+                    hasher.update(&chunk[0]); // Duplicate the node if we have an odd number
+                }
+
+                // Create the parent node
+                let result = hasher.finalize();
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&result);
+                next_level.push(crate::crypto::hash::Hash::new(hash));
+            }
+
+            // Move to the next level
+            nodes = next_level;
+        }
+
+        // The root is the only remaining node
+        nodes[0]
+    }
+
     /// Mine a new block
     pub async fn mine_block(&self) -> Option<Block> {
         // Create a block template
-        let template = self.create_block_template();
+        let template = self.create_block_template().await;
 
         info!("Mining block at height {}", template.height);
 
