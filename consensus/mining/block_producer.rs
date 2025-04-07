@@ -217,7 +217,22 @@ impl<'a> BlockProducer<'a> {
 
     /// Update the chain state
     pub fn update_chain_state(&mut self, new_state: ChainState) {
+        info!("BlockProducer: Updating chain state: height {} -> {}, hash {} -> {}",
+              self.chain_state.height, new_state.height,
+              hex::encode(&self.chain_state.tip_hash), hex::encode(&new_state.tip_hash));
         self.chain_state = new_state;
+        info!("BlockProducer: Chain state updated: height={}, tip_hash={}",
+              self.chain_state.height, hex::encode(&self.chain_state.tip_hash));
+    }
+
+    /// Get the current chain state height
+    pub fn get_chain_state_height(&self) -> u64 {
+        self.chain_state.height
+    }
+
+    /// Get the current chain state tip hash
+    pub fn get_chain_state_tip_hash(&self) -> [u8; 32] {
+        self.chain_state.tip_hash
     }
 }
 

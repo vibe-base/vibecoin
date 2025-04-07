@@ -269,10 +269,14 @@ impl ConsensusEngine {
     async fn main_loop(&mut self) {
         // Mining interval
         let mining_interval = self.config.target_block_time_duration();
+        info!("Setting mining interval to {} seconds", mining_interval.as_secs());
         let mut mining_timer = time::interval(mining_interval);
+        // Make sure the first tick happens immediately
+        mining_timer.tick().await;
 
         // Difficulty adjustment interval
         let difficulty_interval = Duration::from_secs(60);
+        info!("Setting difficulty adjustment interval to {} seconds", difficulty_interval.as_secs());
         let mut difficulty_timer = time::interval(difficulty_interval);
 
         loop {
@@ -289,6 +293,7 @@ impl ConsensusEngine {
 
                 // Mining timer
                 _ = mining_timer.tick() => {
+                    info!("Mining timer fired. Enable mining: {}", self.config.enable_mining);
                     if self.config.enable_mining {
                         self.mine_block().await;
                     }
@@ -338,16 +343,47 @@ impl ConsensusEngine {
 
     /// Update the chain state with a new block
     async fn update_chain_state(&self, block: &Block) {
-        // Update the chain state
-        let mut chain_state = self.chain_state.lock().await;
-        chain_state.height = block.height;
-        chain_state.tip_hash = block.hash;
-        chain_state.latest_hash = block.hash;
-        chain_state.latest_timestamp = block.timestamp;
+        // Create a clone of the chain state to avoid holding the lock for too long
+        let updated_chain_state = {
+            // Update the chain state
+            let mut chain_state = self.chain_state.lock().await;
+            info!("Updating chain state: height {} -> {}, hash {} -> {}",
+                  chain_state.height, block.height,
+                  hex::encode(&chain_state.tip_hash), hex::encode(&block.hash));
+            chain_state.height = block.height;
+            chain_state.tip_hash = block.hash;
+            chain_state.latest_hash = block.hash;
+            chain_state.latest_timestamp = block.timestamp;
+            chain_state.total_difficulty += 1; // Increment difficulty
 
-        // Update the block producer
-        let mut block_producer = self.block_producer.lock().await;
-        block_producer.update_chain_state(chain_state.clone());
+            // Log the updated chain state
+            info!("Chain state updated: height={}, tip_hash={}, total_difficulty={}",
+                  chain_state.height, hex::encode(&chain_state.tip_hash), chain_state.total_difficulty);
+
+            // Clone the chain state before releasing the lock
+            chain_state.clone()
+        };
+
+        // Update the block producer with the cloned chain state in a separate task
+        // to avoid potential deadlocks
+        let block_producer_clone = self.block_producer.clone();
+        let updated_chain_state_clone = updated_chain_state.clone();
+
+        tokio::spawn(async move {
+            info!("Updating block producer chain state...");
+            let mut block_producer = block_producer_clone.lock().await;
+            let producer_height_before = block_producer.get_chain_state_height();
+            let producer_hash_before = block_producer.get_chain_state_tip_hash();
+            info!("Block producer chain state before update: height={}, tip_hash={}",
+                  producer_height_before, hex::encode(&producer_hash_before));
+
+            block_producer.update_chain_state(updated_chain_state_clone);
+
+            let producer_height_after = block_producer.get_chain_state_height();
+            let producer_hash_after = block_producer.get_chain_state_tip_hash();
+            info!("Block producer chain state after update: height={}, tip_hash={}",
+                  producer_height_after, hex::encode(&producer_hash_after));
+        });
     }
 
     /// Handle a new transaction
@@ -364,8 +400,25 @@ impl ConsensusEngine {
 
     /// Mine a new block
     async fn mine_block(&self) {
+        info!("Attempting to mine a new block");
+
+        // Get the current chain state height
+        let (current_height, current_hash) = {
+            let chain_state = self.chain_state.lock().await;
+            (chain_state.height, chain_state.tip_hash)
+        };
+
+        info!("Mining block at height {} on top of block {}",
+              current_height + 1, hex::encode(&current_hash));
+
         // Get the block producer
         let block_producer = self.block_producer.lock().await;
+
+        // Check the block producer's chain state
+        let producer_height = block_producer.get_chain_state_height();
+        let producer_hash = block_producer.get_chain_state_tip_hash();
+        info!("Block producer chain state: height={}, tip_hash={}",
+              producer_height, hex::encode(&producer_hash));
 
         // Mine a block
         if let Some(block) = block_producer.mine_block().await {
@@ -373,6 +426,8 @@ impl ConsensusEngine {
 
             // Handle the new block
             self.handle_new_block(block).await;
+        } else {
+            warn!("Failed to mine a new block");
         }
     }
 
