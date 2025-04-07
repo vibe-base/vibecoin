@@ -30,34 +30,34 @@ pub enum BlockProcessingResult {
 }
 
 /// Block processor for handling new blocks
-pub struct BlockProcessor {
+pub struct BlockProcessor<'a> {
     /// Block store
-    block_store: Arc<BlockStore>,
+    block_store: Arc<BlockStore<'a>>,
 
     /// Transaction store
-    tx_store: Arc<TxStore>,
+    tx_store: Arc<TxStore<'a>>,
 
     /// State store
-    state_store: Arc<StateStore>,
+    state_store: Arc<StateStore<'a>>,
 
     /// Batch operation manager
-    batch_manager: Arc<BatchOperationManager>,
+    batch_manager: Arc<BatchOperationManager<'a>>,
 
     /// Block validator
-    validator: Arc<BlockValidator>,
+    validator: Arc<BlockValidator<'a>>,
 
     /// Mempool
     mempool: Option<Arc<Mempool>>,
 }
 
-impl BlockProcessor {
+impl<'a> BlockProcessor<'a> {
     /// Create a new block processor
     pub fn new(
-        block_store: Arc<BlockStore>,
-        tx_store: Arc<TxStore>,
-        state_store: Arc<StateStore>,
-        batch_manager: Arc<BatchOperationManager>,
-        validator: Arc<BlockValidator>,
+        block_store: Arc<BlockStore<'a>>,
+        tx_store: Arc<TxStore<'a>>,
+        state_store: Arc<StateStore<'a>>,
+        batch_manager: Arc<BatchOperationManager<'a>>,
+        validator: Arc<BlockValidator<'a>>,
         mempool: Option<Arc<Mempool>>,
     ) -> Self {
         Self {

@@ -6,6 +6,8 @@ pub mod crypto;
 pub mod network;
 pub mod consensus;
 pub mod mempool;
+pub mod config;
+pub mod tools;
 
 // Initialize logging
 pub fn init_logger() {

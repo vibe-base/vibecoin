@@ -6,7 +6,7 @@ use hex;
 
 use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
 use crate::storage::block_store::{Hash, Block};
-use crate::storage::tx_store::{TxStore, TransactionStatus, TransactionError};
+use crate::storage::tx_store::{TxStore, TransactionStatus, TransactionError, TransactionRecord};
 use crate::storage::trie::mpt::MerklePatriciaTrie;
 
 /// Account state structure

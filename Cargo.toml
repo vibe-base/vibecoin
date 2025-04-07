@@ -36,6 +36,10 @@ chrono = "0.4.24"
 rayon = "1.7.0"
 once_cell = "1.17.1"
 byteorder = "1.4.3"
+num_cpus = "1.15.0"
+array-init = "2.1.0"
+toml = "0.7.3"
+structopt = "0.3.26"
 
 [dev-dependencies]
 tempfile = "3.5.0"
@@ -48,3 +52,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "vibecoin"
 path = "src/main.rs"
+
+[[bin]]
+name = "test_storage"
+path = "test_storage.rs"

@@ -327,13 +327,13 @@ impl MerklePatriciaTrie {
                     }
                 },
 
-                Node::Branch { mut children, mut value: branch_value } => {
+                Node::Branch { mut children, value: mut branch_value } => {
                     // Handle branch node
                     let nibble = nibbles[depth] as usize;
 
                     if depth + 1 == nibbles.len() {
                         // This is the last nibble, update the branch's value
-                        branch_value = Some(value);
+                        let branch_value = Some(value);
                     } else {
                         // Continue with the child node
                         let child = children[nibble].take().unwrap_or(Box::new(Node::empty()));
@@ -341,7 +341,7 @@ impl MerklePatriciaTrie {
                         children[nibble] = Some(Box::new(new_child));
                     }
 
-                    Node::branch(children, branch_value)
+                    Node::branch(children, value)
                 },
             }
         }
