@@ -8,41 +8,9 @@ use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
 use crate::storage::block_store::{Hash, Block};
 use crate::storage::tx_store::{TxStore, TransactionStatus, TransactionError, TransactionRecord};
 use crate::storage::trie::mpt::MerklePatriciaTrie;
+use crate::storage::state::{AccountState, AccountType, StateRoot, StateError};
 
-/// Account state structure
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct AccountState {
-    /// Account balance
-    pub balance: u64,
-
-    /// Account nonce (for transaction ordering)
-    pub nonce: u64,
-
-    /// Smart contract code
-    pub code: Option<Vec<u8>>,
-
-    /// Smart contract storage (key-value pairs)
-    pub storage: HashMap<Vec<u8>, Vec<u8>>,
-
-    /// Last updated block height
-    pub last_updated: u64,
-
-    /// Account type
-    pub account_type: AccountType,
-}
-
-/// Account type
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-pub enum AccountType {
-    /// Regular user account
-    User,
-
-    /// Smart contract account
-    Contract,
-
-    /// System account
-    System,
-}
+// Note: AccountState, AccountType, and StateRoot are now imported from the state module
 
 /// Error type for StateStore operations
 #[derive(Debug, thiserror::Error)]
@@ -76,18 +44,7 @@ pub enum StateStoreError {
     Other(String),
 }
 
-/// State root hash
-#[derive(Debug, Clone, PartialEq)]
-pub struct StateRoot {
-    /// Root hash of the state trie
-    pub root_hash: Hash,
-
-    /// Block height at which this state root was calculated
-    pub block_height: u64,
-
-    /// Timestamp when this state root was calculated
-    pub timestamp: u64,
-}
+// StateRoot is now imported from the state module
 
 /// Store for account states
 pub struct StateStore<'a> {

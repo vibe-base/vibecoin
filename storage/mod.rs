@@ -24,11 +24,12 @@ pub mod rocksdb_schema;
 pub mod state_manager;
 pub mod mempool;
 pub mod snapshot;
+pub mod state;
 
 // Re-export common types
 pub use block_store::{Block, Hash, BlockStore};
 pub use tx_store::{TransactionRecord, TransactionStatus, TransactionError, TxStore};
-pub use state_store::{AccountState, AccountType, StateRoot, StateStore};
+pub use state_store::StateStore;
 pub use kv_store::{KVStore, KVStoreError, RocksDBStore, WriteBatchOperation};
 pub use poh_store::{PoHEntry, PoHStore};
 pub use trie::mpt::{MerklePatriciaTrie, Proof, ProofItem};
@@ -38,3 +39,4 @@ pub use rocksdb_schema::{Schema, KeyType, RocksDBManager, DatabaseStats};
 pub use state_manager::StateManager;
 pub use mempool::{MempoolStore, MempoolTransactionMetadata, MempoolStorageError};
 pub use snapshot::{SnapshotManager, SnapshotConfig, SnapshotMetadata, SnapshotType, CompressionType, SnapshotError};
+pub use state::{AccountState, AccountType, StateRoot, StateError, StateResult, GlobalState, ChainParameters, StateTransition, AccountChange, AccountChangeType};
