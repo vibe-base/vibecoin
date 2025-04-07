@@ -22,6 +22,7 @@ pub mod trie;
 pub mod batch_operations;
 pub mod rocksdb_schema;
 pub mod state_manager;
+pub mod mempool;
 
 // Re-export common types
 pub use block_store::{Block, Hash, BlockStore};
@@ -34,3 +35,4 @@ pub use trie::node::Node;
 pub use batch_operations::{BatchOperationManager, BatchOperationError};
 pub use rocksdb_schema::{Schema, KeyType, RocksDBManager, DatabaseStats};
 pub use state_manager::StateManager;
+pub use mempool::{MempoolStore, MempoolTransactionMetadata, MempoolStorageError};
