@@ -26,3 +26,5 @@ pub use tx_store::{TransactionRecord, TransactionStatus, TransactionError, TxSto
 pub use state_store::{AccountState, AccountType, StateRoot, StateStore};
 pub use kv_store::{KVStore, KVStoreError, RocksDBStore, WriteBatchOperation};
 pub use poh_store::{PoHEntry, PoHStore};
+pub use trie::mpt::{MerklePatriciaTrie, Proof, ProofItem};
+pub use trie::node::Node;
