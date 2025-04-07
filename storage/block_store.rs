@@ -92,67 +92,128 @@ impl<'a> BlockStore<'a> {
             .map_err(|e| BlockStoreError::SerializationError(e.to_string()))?;
 
         // Create a batch operation
-        let mut batch = WriteBatchOperation::new();
+        let mut batch = Vec::new();
 
-        // Index by height
-        let height_key = format!("block:height:{}", block.height);
-        batch.put(height_key.as_bytes().to_vec(), value.clone());
+        // Store by height (primary key)
+        let height_key = format!("block:{}", block.height);
+        batch.push(WriteBatchOperation::Put {
+            key: height_key.as_bytes().to_vec(),
+            value: value.clone(),
+        });
 
-        // Index by hash
-        let hash_key = format!("block:hash:{}", hex::encode(&block.hash));
-        batch.put(hash_key.as_bytes().to_vec(), value);
+        // Index by hash (secondary index)
+        let hash_key = format!("block_hash:{}", hex::encode(&block.hash));
+        batch.push(WriteBatchOperation::Put {
+            key: hash_key.as_bytes().to_vec(),
+            value: block.height.to_be_bytes().to_vec(),
+        });
 
-        // Execute the batch
-        self.store.write_batch(batch)?;
-
-        // Update the latest height cache if needed
+        // Update latest block height metadata
         let mut latest_height = self.latest_height.write().unwrap();
         if latest_height.is_none() || latest_height.unwrap() < block.height {
             *latest_height = Some(block.height);
+
+            // Store latest height in the database
+            batch.push(WriteBatchOperation::Put {
+                key: b"meta:latest_block_height".to_vec(),
+                value: block.height.to_be_bytes().to_vec(),
+            });
         }
+
+        // Execute the batch
+        self.store.write_batch(batch)?;
 
         debug!("Stored block at height {}: {:?}", block.height, hex::encode(&block.hash));
         Ok(())
     }
 
     /// Retrieve a block by its height
-    pub fn get_block_by_height(&self, height: u64) -> Option<Block> {
-        let key = format!("block:height:{}", height);
+    pub fn get_block_by_height(&self, height: u64) -> Result<Option<Block>, BlockStoreError> {
+        let key = format!("block:{}", height);
         match self.store.get(key.as_bytes()) {
             Ok(Some(bytes)) => {
                 match bincode::deserialize(&bytes) {
-                    Ok(block) => Some(block),
+                    Ok(block) => Ok(Some(block)),
                     Err(e) => {
                         error!("Failed to deserialize block at height {}: {}", height, e);
-                        None
+                        Err(BlockStoreError::SerializationError(format!(
+                            "Failed to deserialize block at height {}: {}", height, e
+                        )))
                     }
                 }
             },
-            Ok(None) => None,
+            Ok(None) => Ok(None),
             Err(e) => {
                 error!("Failed to get block at height {}: {}", height, e);
-                None
+                Err(BlockStoreError::KVStoreError(e))
             }
         }
     }
 
     /// Retrieve a block by its hash
-    pub fn get_block_by_hash(&self, hash: &Hash) -> Option<Block> {
-        let key = format!("block:hash:{}", hex::encode(hash));
-        match self.store.get(key.as_bytes()) {
+    pub fn get_block_by_hash(&self, hash: &Hash) -> Result<Option<Block>, BlockStoreError> {
+        let hash_key = format!("block_hash:{}", hex::encode(hash));
+
+        // First, get the height from the hash index
+        let height_bytes = match self.store.get(hash_key.as_bytes()) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => return Ok(None),
+            Err(e) => {
+                error!("Failed to get block height for hash {}: {}", hex::encode(hash), e);
+                return Err(BlockStoreError::KVStoreError(e));
+            }
+        };
+
+        // Convert bytes to height
+        let height = if height_bytes.len() == 8 {
+            let mut height_arr = [0u8; 8];
+            height_arr.copy_from_slice(&height_bytes);
+            u64::from_be_bytes(height_arr)
+        } else {
+            error!("Invalid height bytes for hash {}", hex::encode(hash));
+            return Err(BlockStoreError::InvalidBlockData(format!(
+                "Invalid height bytes for hash {}", hex::encode(hash)
+            )));
+        };
+
+        // Now get the block by height
+        self.get_block_by_height(height)
+    }
+
+    /// Get the latest block
+    pub fn get_latest_block(&self) -> Result<Option<Block>, BlockStoreError> {
+        // Try to get from cache first
+        let latest_height = self.latest_height.read().unwrap();
+
+        if let Some(height) = *latest_height {
+            return self.get_block_by_height(height);
+        }
+
+        // If not in cache, try to get from database
+        match self.store.get(b"meta:latest_block_height") {
             Ok(Some(bytes)) => {
-                match bincode::deserialize(&bytes) {
-                    Ok(block) => Some(block),
-                    Err(e) => {
-                        error!("Failed to deserialize block with hash {}: {}", hex::encode(hash), e);
-                        None
-                    }
+                if bytes.len() == 8 {
+                    let mut height_arr = [0u8; 8];
+                    height_arr.copy_from_slice(&bytes);
+                    let height = u64::from_be_bytes(height_arr);
+
+                    // Update cache
+                    let mut latest_height = self.latest_height.write().unwrap();
+                    *latest_height = Some(height);
+
+                    // Get the block
+                    self.get_block_by_height(height)
+                } else {
+                    error!("Invalid latest block height format");
+                    Err(BlockStoreError::InvalidBlockData(
+                        "Invalid latest block height format".to_string()
+                    ))
                 }
             },
-            Ok(None) => None,
+            Ok(None) => Ok(None),
             Err(e) => {
-                error!("Failed to get block with hash {}: {}", hex::encode(hash), e);
-                None
+                error!("Failed to get latest block height: {}", e);
+                Err(BlockStoreError::KVStoreError(e))
             }
         }
     }

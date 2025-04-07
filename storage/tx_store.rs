@@ -122,146 +122,227 @@ impl<'a> TxStore<'a> {
             .map_err(|e| TxStoreError::SerializationError(e.to_string()))?;
 
         // Create a batch operation
-        let mut batch = WriteBatchOperation::new();
+        let mut batch = Vec::new();
 
-        // Index by ID
-        let id_key = format!("tx:id:{}", hex::encode(&tx.tx_id));
-        batch.put(id_key.as_bytes().to_vec(), value.clone());
+        // Primary index by transaction hash
+        let tx_key = format!("tx:{}", hex::encode(&tx.tx_id));
+        batch.push(WriteBatchOperation::Put {
+            key: tx_key.as_bytes().to_vec(),
+            value: value.clone(),
+        });
 
-        // Index by sender
-        let sender_key = format!("tx:sender:{}:{}", hex::encode(&tx.sender), hex::encode(&tx.tx_id));
-        batch.put(sender_key.as_bytes().to_vec(), value.clone());
-
-        // Index by recipient
-        let recipient_key = format!("tx:recipient:{}:{}", hex::encode(&tx.recipient), hex::encode(&tx.tx_id));
-        batch.put(recipient_key.as_bytes().to_vec(), value.clone());
-
-        // Index by block
+        // Secondary index: transactions by block
         if tx.block_height > 0 {
-            let block_key = format!("tx:block:{}:{}", tx.block_height, hex::encode(&tx.tx_id));
-            batch.put(block_key.as_bytes().to_vec(), value.clone());
+            let block_tx_key = format!("tx_block:{}:{}", tx.block_height, hex::encode(&tx.tx_id));
+            batch.push(WriteBatchOperation::Put {
+                key: block_tx_key.as_bytes().to_vec(),
+                value: tx.tx_id.to_vec(),
+            });
         }
 
-        // Index by nonce (for sender)
-        let nonce_key = format!("tx:sender:{}:nonce:{}", hex::encode(&tx.sender), tx.nonce);
-        batch.put(nonce_key.as_bytes().to_vec(), value);
+        // Secondary index: transactions by sender
+        let sender_tx_key = format!("tx_sender:{}:{}", hex::encode(&tx.sender), hex::encode(&tx.tx_id));
+        batch.push(WriteBatchOperation::Put {
+            key: sender_tx_key.as_bytes().to_vec(),
+            value: tx.tx_id.to_vec(),
+        });
+
+        // Secondary index: transactions by recipient
+        let recipient_tx_key = format!("tx_recipient:{}:{}", hex::encode(&tx.recipient), hex::encode(&tx.tx_id));
+        batch.push(WriteBatchOperation::Put {
+            key: recipient_tx_key.as_bytes().to_vec(),
+            value: tx.tx_id.to_vec(),
+        });
+
+        // Secondary index: latest nonce for sender
+        let sender_nonce_key = format!("tx_sender_nonce:{}", hex::encode(&tx.sender));
+
+        // Only update if this nonce is higher than any previously stored
+        match self.store.get(sender_nonce_key.as_bytes()) {
+            Ok(Some(bytes)) => {
+                if bytes.len() == 8 {
+                    let mut nonce_arr = [0u8; 8];
+                    nonce_arr.copy_from_slice(&bytes);
+                    let stored_nonce = u64::from_be_bytes(nonce_arr);
+
+                    if tx.nonce > stored_nonce {
+                        batch.push(WriteBatchOperation::Put {
+                            key: sender_nonce_key.as_bytes().to_vec(),
+                            value: tx.nonce.to_be_bytes().to_vec(),
+                        });
+                    }
+                } else {
+                    // Invalid format, overwrite
+                    batch.push(WriteBatchOperation::Put {
+                        key: sender_nonce_key.as_bytes().to_vec(),
+                        value: tx.nonce.to_be_bytes().to_vec(),
+                    });
+                }
+            },
+            _ => {
+                // No existing nonce, store this one
+                batch.push(WriteBatchOperation::Put {
+                    key: sender_nonce_key.as_bytes().to_vec(),
+                    value: tx.nonce.to_be_bytes().to_vec(),
+                });
+            }
+        }
 
         // Execute the batch
         self.store.write_batch(batch).map_err(|e| e.into())
     }
 
     /// Retrieve a transaction by its ID
-    pub fn get_transaction(&self, tx_id: &Hash) -> Option<TransactionRecord> {
-        let key = format!("tx:id:{}", hex::encode(tx_id));
+    pub fn get_transaction(&self, tx_id: &Hash) -> Result<Option<TransactionRecord>, TxStoreError> {
+        let key = format!("tx:{}", hex::encode(tx_id));
         match self.store.get(key.as_bytes()) {
             Ok(Some(bytes)) => {
                 match bincode::deserialize(&bytes) {
-                    Ok(tx) => Some(tx),
+                    Ok(tx) => Ok(Some(tx)),
                     Err(e) => {
                         error!("Failed to deserialize transaction {}: {}", hex::encode(tx_id), e);
-                        None
+                        Err(TxStoreError::SerializationError(format!(
+                            "Failed to deserialize transaction {}: {}", hex::encode(tx_id), e
+                        )))
                     }
                 }
             },
-            Ok(None) => None,
+            Ok(None) => Ok(None),
             Err(e) => {
                 error!("Failed to get transaction {}: {}", hex::encode(tx_id), e);
-                None
+                Err(TxStoreError::KVStoreError(e))
             }
         }
     }
 
     /// Get all transactions for a specific sender
-    pub fn get_transactions_by_sender(&self, sender: &Hash) -> Vec<TransactionRecord> {
-        let prefix = format!("tx:sender:{}:", hex::encode(sender));
+    pub fn get_transactions_by_sender(&self, sender: &Hash) -> Result<Vec<TransactionRecord>, TxStoreError> {
+        let prefix = format!("tx_sender:{}:", hex::encode(sender));
+        let mut transactions = Vec::new();
+
+        // Scan all keys with the sender prefix
         match self.store.scan_prefix(prefix.as_bytes()) {
-            Ok(entries) => {
-                entries.iter()
-                    .filter_map(|(_, v)| {
-                        match bincode::deserialize(v) {
-                            Ok(tx) => Some(tx),
-                            Err(e) => {
-                                error!("Failed to deserialize transaction: {}", e);
-                                None
+            Ok(items) => {
+                for (_, tx_id_bytes) in items {
+                    // The value is the transaction ID
+                    if tx_id_bytes.len() == 32 {
+                        let mut tx_id = [0u8; 32];
+                        tx_id.copy_from_slice(&tx_id_bytes);
+
+                        // Get the full transaction
+                        match self.get_transaction(&tx_id)? {
+                            Some(tx) => transactions.push(tx),
+                            None => {
+                                // This shouldn't happen, but log it if it does
+                                warn!("Transaction {} referenced in index but not found", hex::encode(&tx_id));
                             }
                         }
-                    })
-                    .collect()
+                    } else {
+                        warn!("Invalid transaction ID format in sender index");
+                    }
+                }
+                Ok(transactions)
             },
             Err(e) => {
-                error!("Failed to scan transactions by sender {}: {}", hex::encode(sender), e);
-                Vec::new()
+                error!("Failed to scan transactions by sender: {}", e);
+                Err(TxStoreError::KVStoreError(e))
             }
         }
     }
 
     /// Get all transactions for a specific recipient
-    pub fn get_transactions_by_recipient(&self, recipient: &Hash) -> Vec<TransactionRecord> {
-        let prefix = format!("tx:recipient:{}:", hex::encode(recipient));
+    pub fn get_transactions_by_recipient(&self, recipient: &Hash) -> Result<Vec<TransactionRecord>, TxStoreError> {
+        let prefix = format!("tx_recipient:{}:", hex::encode(recipient));
+        let mut transactions = Vec::new();
+
+        // Scan all keys with the recipient prefix
         match self.store.scan_prefix(prefix.as_bytes()) {
-            Ok(entries) => {
-                entries.iter()
-                    .filter_map(|(_, v)| {
-                        match bincode::deserialize(v) {
-                            Ok(tx) => Some(tx),
-                            Err(e) => {
-                                error!("Failed to deserialize transaction: {}", e);
-                                None
+            Ok(items) => {
+                for (_, tx_id_bytes) in items {
+                    // The value is the transaction ID
+                    if tx_id_bytes.len() == 32 {
+                        let mut tx_id = [0u8; 32];
+                        tx_id.copy_from_slice(&tx_id_bytes);
+
+                        // Get the full transaction
+                        match self.get_transaction(&tx_id)? {
+                            Some(tx) => transactions.push(tx),
+                            None => {
+                                // This shouldn't happen, but log it if it does
+                                warn!("Transaction {} referenced in index but not found", hex::encode(&tx_id));
                             }
                         }
-                    })
-                    .collect()
+                    } else {
+                        warn!("Invalid transaction ID format in recipient index");
+                    }
+                }
+                Ok(transactions)
             },
             Err(e) => {
-                error!("Failed to scan transactions by recipient {}: {}", hex::encode(recipient), e);
-                Vec::new()
+                error!("Failed to scan transactions by recipient: {}", e);
+                Err(TxStoreError::KVStoreError(e))
             }
         }
     }
 
     /// Get all transactions in a specific block
-    pub fn get_transactions_by_block(&self, block_height: u64) -> Vec<TransactionRecord> {
-        let prefix = format!("tx:block:{}:", block_height);
+    pub fn get_transactions_by_block(&self, block_height: u64) -> Result<Vec<TransactionRecord>, TxStoreError> {
+        let prefix = format!("tx_block:{}:", block_height);
+        let mut transactions = Vec::new();
+
+        // Scan all keys with the block prefix
         match self.store.scan_prefix(prefix.as_bytes()) {
-            Ok(entries) => {
-                entries.iter()
-                    .filter_map(|(_, v)| {
-                        match bincode::deserialize(v) {
-                            Ok(tx) => Some(tx),
-                            Err(e) => {
-                                error!("Failed to deserialize transaction: {}", e);
-                                None
+            Ok(items) => {
+                for (_, tx_id_bytes) in items {
+                    // The value is the transaction ID
+                    if tx_id_bytes.len() == 32 {
+                        let mut tx_id = [0u8; 32];
+                        tx_id.copy_from_slice(&tx_id_bytes);
+
+                        // Get the full transaction
+                        match self.get_transaction(&tx_id)? {
+                            Some(tx) => transactions.push(tx),
+                            None => {
+                                // This shouldn't happen, but log it if it does
+                                warn!("Transaction {} referenced in block {} but not found",
+                                     hex::encode(&tx_id), block_height);
                             }
                         }
-                    })
-                    .collect()
+                    } else {
+                        warn!("Invalid transaction ID format in block index");
+                    }
+                }
+                Ok(transactions)
             },
             Err(e) => {
                 error!("Failed to scan transactions by block {}: {}", block_height, e);
-                Vec::new()
+                Err(TxStoreError::KVStoreError(e))
             }
         }
     }
 
-    /// Get transaction by sender and nonce
-    pub fn get_transaction_by_nonce(&self, sender: &Hash, nonce: u64) -> Option<TransactionRecord> {
-        let key = format!("tx:sender:{}:nonce:{}", hex::encode(sender), nonce);
+    /// Get the latest nonce for a sender
+    pub fn get_latest_nonce(&self, sender: &Hash) -> Result<Option<u64>, TxStoreError> {
+        let key = format!("tx_sender_nonce:{}", hex::encode(sender));
         match self.store.get(key.as_bytes()) {
             Ok(Some(bytes)) => {
-                match bincode::deserialize(&bytes) {
-                    Ok(tx) => Some(tx),
-                    Err(e) => {
-                        error!("Failed to deserialize transaction for sender {} nonce {}: {}",
-                               hex::encode(sender), nonce, e);
-                        None
-                    }
+                if bytes.len() == 8 {
+                    let mut nonce_arr = [0u8; 8];
+                    nonce_arr.copy_from_slice(&bytes);
+                    let nonce = u64::from_be_bytes(nonce_arr);
+                    Ok(Some(nonce))
+                } else {
+                    error!("Invalid nonce format for sender {}", hex::encode(sender));
+                    Err(TxStoreError::InvalidDataFormat(format!(
+                        "Invalid nonce format for sender {}", hex::encode(sender)
+                    )))
                 }
             },
-            Ok(None) => None,
+            Ok(None) => Ok(None),
             Err(e) => {
-                error!("Failed to get transaction for sender {} nonce {}: {}",
-                       hex::encode(sender), nonce, e);
-                None
+                error!("Failed to get latest nonce for sender {}: {}",
+                       hex::encode(sender), e);
+                Err(TxStoreError::KVStoreError(e))
             }
         }
     }
@@ -269,22 +350,29 @@ impl<'a> TxStore<'a> {
     /// Update transaction status
     pub fn update_transaction_status(&self, tx_id: &Hash, status: TransactionStatus) -> Result<(), TxStoreError> {
         // Get the transaction
-        let mut tx = self.get_transaction(tx_id)
-            .ok_or_else(|| TxStoreError::TransactionNotFound(hex::encode(tx_id)))?;
+        let tx = match self.get_transaction(tx_id)? {
+            Some(tx) => tx,
+            None => return Err(TxStoreError::TransactionNotFound(hex::encode(tx_id))),
+        };
 
-        // Update the status
-        tx.status = status;
+        // Create updated transaction
+        let mut updated_tx = tx.clone();
+        updated_tx.status = status;
 
         // Store the updated transaction
-        self.put_transaction(&tx)
+        self.put_transaction(&updated_tx)
     }
 
     /// Check if a transaction exists
-    pub fn has_transaction(&self, tx_id: &Hash) -> bool {
-        let key = format!("tx:id:{}", hex::encode(tx_id));
+    pub fn has_transaction(&self, tx_id: &Hash) -> Result<bool, TxStoreError> {
+        let key = format!("tx:{}", hex::encode(tx_id));
         match self.store.get(key.as_bytes()) {
-            Ok(Some(_)) => true,
-            _ => false,
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Ok(false),
+            Err(e) => {
+                error!("Failed to check if transaction exists {}: {}", hex::encode(tx_id), e);
+                Err(TxStoreError::KVStoreError(e))
+            }
         }
     }
 

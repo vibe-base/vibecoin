@@ -19,6 +19,7 @@ pub mod tx_store;
 pub mod state_store;
 pub mod poh_store;
 pub mod trie;
+pub mod batch_operations;
 
 // Re-export common types
 pub use block_store::{Block, Hash, BlockStore};
@@ -28,3 +29,4 @@ pub use kv_store::{KVStore, KVStoreError, RocksDBStore, WriteBatchOperation};
 pub use poh_store::{PoHEntry, PoHStore};
 pub use trie::mpt::{MerklePatriciaTrie, Proof, ProofItem};
 pub use trie::node::Node;
+pub use batch_operations::{BatchOperationManager, BatchOperationError};

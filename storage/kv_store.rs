@@ -14,8 +14,20 @@ pub enum KVStoreError {
     RocksDBError(String),
     /// Serialization error
     SerializationError(String),
+    /// Deserialization error
+    DeserializationError(String),
     /// Key not found
-    KeyNotFound,
+    KeyNotFound(String),
+    /// Invalid data format
+    InvalidDataFormat(String),
+    /// Batch operation failed
+    BatchOperationFailed(String),
+    /// Database already exists
+    DatabaseAlreadyExists(String),
+    /// Database not found
+    DatabaseNotFound(String),
+    /// Column family not found
+    ColumnFamilyNotFound(String),
     /// Other error
     Other(String),
 }
@@ -26,7 +38,13 @@ impl fmt::Display for KVStoreError {
             KVStoreError::IoError(err) => write!(f, "IO error: {}", err),
             KVStoreError::RocksDBError(err) => write!(f, "RocksDB error: {}", err),
             KVStoreError::SerializationError(err) => write!(f, "Serialization error: {}", err),
-            KVStoreError::KeyNotFound => write!(f, "Key not found"),
+            KVStoreError::DeserializationError(err) => write!(f, "Deserialization error: {}", err),
+            KVStoreError::KeyNotFound(key) => write!(f, "Key not found: {}", key),
+            KVStoreError::InvalidDataFormat(msg) => write!(f, "Invalid data format: {}", msg),
+            KVStoreError::BatchOperationFailed(msg) => write!(f, "Batch operation failed: {}", msg),
+            KVStoreError::DatabaseAlreadyExists(path) => write!(f, "Database already exists: {}", path),
+            KVStoreError::DatabaseNotFound(path) => write!(f, "Database not found: {}", path),
+            KVStoreError::ColumnFamilyNotFound(name) => write!(f, "Column family not found: {}", name),
             KVStoreError::Other(err) => write!(f, "Other error: {}", err),
         }
     }
@@ -52,74 +70,52 @@ impl From<bincode::Error> for KVStoreError {
     }
 }
 
-/// Batch operation for atomic writes
-pub struct WriteBatchOperation {
-    /// Operations to perform
-    pub operations: Vec<BatchOperation>,
-}
-
-impl WriteBatchOperation {
-    /// Create a new batch operation
-    pub fn new() -> Self {
-        Self {
-            operations: Vec::new(),
-        }
-    }
-
-    /// Add a put operation to the batch
-    pub fn put(&mut self, key: Vec<u8>, value: Vec<u8>) {
-        self.operations.push(BatchOperation::Put(key, value));
-    }
-
-    /// Add a delete operation to the batch
-    pub fn delete(&mut self, key: Vec<u8>) {
-        self.operations.push(BatchOperation::Delete(key));
-    }
-}
-
-/// Batch operation type
-pub enum BatchOperation {
+/// Write batch operation for atomic updates
+#[derive(Debug, Clone)]
+pub enum WriteBatchOperation {
     /// Put operation
-    Put(Vec<u8>, Vec<u8>),
+    Put { key: Vec<u8>, value: Vec<u8> },
     /// Delete operation
-    Delete(Vec<u8>),
+    Delete { key: Vec<u8> },
 }
 
-/// Key-Value Store trait defining the interface for storage operations
-pub trait KVStore {
-    /// Store a key-value pair
+/// Key-value store trait
+pub trait KVStore: Send + Sync {
+    /// Put a key-value pair
     fn put(&self, key: &[u8], value: &[u8]) -> Result<(), KVStoreError>;
-    
-    /// Retrieve a value by key
+
+    /// Get a value by key
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, KVStoreError>;
-    
+
     /// Delete a key-value pair
     fn delete(&self, key: &[u8]) -> Result<(), KVStoreError>;
-    
-    /// Scan for keys with a given prefix
+
+    /// Check if a key exists
+    fn exists(&self, key: &[u8]) -> Result<bool, KVStoreError>;
+
+    /// Write a batch of operations atomically
+    fn write_batch(&self, operations: Vec<WriteBatchOperation>) -> Result<(), KVStoreError>;
+
+    /// Iterate over key-value pairs with a prefix
     fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError>;
-    
-    /// Execute a batch of operations atomically
-    fn write_batch(&self, batch: WriteBatchOperation) -> Result<(), KVStoreError>;
-    
-    /// Create a snapshot of the database
-    fn create_snapshot(&self) -> Result<(), KVStoreError>;
-    
-    /// Flush all write operations to disk
+
+    /// Flush any pending writes to disk
     fn flush(&self) -> Result<(), KVStoreError>;
 }
 
-/// RocksDB implementation of the KVStore trait
+/// RocksDB implementation of KVStore
 pub struct RocksDBStore {
-    db: Arc<DB>,
+    /// RocksDB instance
+    db: DB,
 }
 
 impl RocksDBStore {
-    /// Create a new RocksDB store at the given path
-    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+    /// Create a new RocksDBStore
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, KVStoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
-        opts.set_compression_type(rocksdb::DBCompressionType::Snappy);
+        opts.set_keep_log_file_num(10);
+        opts.set_max_total_wal_size(64 * 1024 * 1024); // 64MB
         opts.set_write_buffer_size(64 * 1024 * 1024); // 64MB
         opts.set_max_write_buffer_number(3);
         opts.set_target_file_size_base(64 * 1024 * 1024); // 64MB
@@ -129,74 +125,173 @@ impl RocksDBStore {
         opts.set_num_levels(7);
         opts.set_max_bytes_for_level_base(512 * 1024 * 1024); // 512MB
         opts.set_max_bytes_for_level_multiplier(10.0);
-        
-        let db = DB::open(&opts, path).expect("Failed to open RocksDB");
-        Self { db: Arc::new(db) }
+
+        let db = DB::open(&opts, path)
+            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to open database: {}", e)))?;
+
+        Ok(Self { db })
     }
-    
-    /// Create a new RocksDB store with custom options
-    pub fn with_options<P: AsRef<Path>>(path: P, options: Options) -> Self {
-        let db = DB::open(&options, path).expect("Failed to open RocksDB");
-        Self { db: Arc::new(db) }
+
+    /// Create a new RocksDBStore with custom options
+    pub fn with_options<P: AsRef<Path>>(path: P, options: Options) -> Result<Self, KVStoreError> {
+        let db = DB::open(&options, path)
+            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to open database: {}", e)))?;
+
+        Ok(Self { db })
     }
-    
+
     /// Get the underlying RocksDB instance
-    pub fn db(&self) -> Arc<DB> {
-        self.db.clone()
+    pub fn get_db(&self) -> &DB {
+        &self.db
     }
 }
 
 impl KVStore for RocksDBStore {
     fn put(&self, key: &[u8], value: &[u8]) -> Result<(), KVStoreError> {
-        self.db.put(key, value).map_err(|e| e.into())
+        self.db.put(key, value)
+            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to put key: {}", e)))
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, KVStoreError> {
-        self.db.get(key).map_err(|e| e.into())
+        self.db.get(key)
+            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to get key: {}", e)))
     }
 
     fn delete(&self, key: &[u8]) -> Result<(), KVStoreError> {
-        self.db.delete(key).map_err(|e| e.into())
+        self.db.delete(key)
+            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to delete key: {}", e)))
+    }
+
+    fn exists(&self, key: &[u8]) -> Result<bool, KVStoreError> {
+        match self.db.get(key)? {
+            Some(_) => Ok(true),
+            None => Ok(false),
+        }
+    }
+
+    fn write_batch(&self, operations: Vec<WriteBatchOperation>) -> Result<(), KVStoreError> {
+        let mut batch = WriteBatch::default();
+
+        for op in operations {
+            match op {
+                WriteBatchOperation::Put { key, value } => {
+                    batch.put(&key, &value);
+                },
+                WriteBatchOperation::Delete { key } => {
+                    batch.delete(&key);
+                },
+            }
+        }
+
+        self.db.write(batch)
+            .map_err(|e| KVStoreError::BatchOperationFailed(format!("Failed to write batch: {}", e)))
     }
 
     fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError> {
-        let mut result = Vec::new();
-        let iterator = self.db.prefix_iterator(prefix);
+        let mut results = Vec::new();
+        let iterator = self.db.iterator(IteratorMode::From(prefix, rocksdb::Direction::Forward));
+
         for item in iterator {
-            let (key, value) = item.map_err(|e| e.into())?;
-            result.push((key.to_vec(), value.to_vec()));
+            let (key, value) = item
+                .map_err(|e| KVStoreError::RocksDBError(format!("Failed to iterate: {}", e)))?;
+
+            // Check if the key starts with the prefix
+            if key.starts_with(prefix) {
+                results.push((key.to_vec(), value.to_vec()));
+            } else {
+                // We've moved past the prefix, stop iterating
+                break;
+            }
         }
-        Ok(result)
+
+        Ok(results)
     }
-    
-    fn write_batch(&self, batch: WriteBatchOperation) -> Result<(), KVStoreError> {
-        let mut write_batch = WriteBatch::default();
+
+    fn flush(&self) -> Result<(), KVStoreError> {
+        let mut options = WriteOptions::default();
+        options.set_sync(true);
         
-        for op in batch.operations {
+        // Create an empty batch to force a sync
+        let batch = WriteBatch::default();
+        self.db.write_opt(batch, &options)
+            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to flush: {}", e)))
+    }
+}
+
+/// In-memory implementation of KVStore for testing
+#[cfg(test)]
+pub struct MemoryStore {
+    /// In-memory storage
+    data: std::sync::RwLock<std::collections::HashMap<Vec<u8>, Vec<u8>>>,
+}
+
+#[cfg(test)]
+impl MemoryStore {
+    /// Create a new MemoryStore
+    pub fn new() -> Self {
+        Self {
+            data: std::sync::RwLock::new(std::collections::HashMap::new()),
+        }
+    }
+}
+
+#[cfg(test)]
+impl KVStore for MemoryStore {
+    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), KVStoreError> {
+        let mut data = self.data.write().unwrap();
+        data.insert(key.to_vec(), value.to_vec());
+        Ok(())
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, KVStoreError> {
+        let data = self.data.read().unwrap();
+        Ok(data.get(key).cloned())
+    }
+
+    fn delete(&self, key: &[u8]) -> Result<(), KVStoreError> {
+        let mut data = self.data.write().unwrap();
+        data.remove(key);
+        Ok(())
+    }
+
+    fn exists(&self, key: &[u8]) -> Result<bool, KVStoreError> {
+        let data = self.data.read().unwrap();
+        Ok(data.contains_key(key))
+    }
+
+    fn write_batch(&self, operations: Vec<WriteBatchOperation>) -> Result<(), KVStoreError> {
+        let mut data = self.data.write().unwrap();
+        
+        for op in operations {
             match op {
-                BatchOperation::Put(key, value) => {
-                    write_batch.put(&key, &value);
-                }
-                BatchOperation::Delete(key) => {
-                    write_batch.delete(&key);
-                }
+                WriteBatchOperation::Put { key, value } => {
+                    data.insert(key, value);
+                },
+                WriteBatchOperation::Delete { key } => {
+                    data.remove(&key);
+                },
             }
         }
         
-        let mut write_opts = WriteOptions::default();
-        write_opts.set_sync(true); // Ensure durability
+        Ok(())
+    }
+
+    fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError> {
+        let data = self.data.read().unwrap();
+        let mut results = Vec::new();
         
-        self.db.write_opt(write_batch, &write_opts).map_err(|e| e.into())
+        for (key, value) in data.iter() {
+            if key.starts_with(prefix) {
+                results.push((key.clone(), value.clone()));
+            }
+        }
+        
+        Ok(results)
     }
-    
-    fn create_snapshot(&self) -> Result<(), KVStoreError> {
-        // RocksDB doesn't have a direct API for creating snapshots that persist to disk
-        // Instead, we can use checkpoints or simply flush the database
-        self.flush()
-    }
-    
+
     fn flush(&self) -> Result<(), KVStoreError> {
-        self.db.flush().map_err(|e| e.into())
+        // No-op for in-memory store
+        Ok(())
     }
 }
 
@@ -208,63 +303,79 @@ mod tests {
     #[test]
     fn test_rocksdb_store() {
         let temp_dir = tempdir().unwrap();
-        let store = RocksDBStore::new(temp_dir.path());
+        let store = RocksDBStore::new(temp_dir.path()).unwrap();
 
         // Test put and get
-        let key = b"test_key";
-        let value = b"test_value";
-        store.put(key, value).unwrap();
+        store.put(b"key1", b"value1").unwrap();
+        let value = store.get(b"key1").unwrap().unwrap();
+        assert_eq!(value, b"value1");
 
-        let retrieved = store.get(key).unwrap().unwrap();
-        assert_eq!(retrieved, value);
+        // Test exists
+        assert!(store.exists(b"key1").unwrap());
+        assert!(!store.exists(b"key2").unwrap());
 
         // Test delete
-        store.delete(key).unwrap();
-        assert!(store.get(key).unwrap().is_none());
+        store.delete(b"key1").unwrap();
+        assert!(!store.exists(b"key1").unwrap());
 
-        // Test scan_prefix
-        store.put(b"prefix1:a", b"value1").unwrap();
-        store.put(b"prefix1:b", b"value2").unwrap();
-        store.put(b"prefix2:c", b"value3").unwrap();
+        // Test batch operations
+        let operations = vec![
+            WriteBatchOperation::Put { key: b"key1".to_vec(), value: b"value1".to_vec() },
+            WriteBatchOperation::Put { key: b"key2".to_vec(), value: b"value2".to_vec() },
+            WriteBatchOperation::Delete { key: b"key1".to_vec() },
+        ];
+        store.write_batch(operations).unwrap();
 
-        let results = store.scan_prefix(b"prefix1:").unwrap();
+        assert!(!store.exists(b"key1").unwrap());
+        assert!(store.exists(b"key2").unwrap());
+
+        // Test prefix scan
+        store.put(b"prefix:key1", b"value1").unwrap();
+        store.put(b"prefix:key2", b"value2").unwrap();
+        store.put(b"other:key3", b"value3").unwrap();
+
+        let results = store.scan_prefix(b"prefix:").unwrap();
         assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|(k, v)| k == b"prefix:key1" && v == b"value1"));
+        assert!(results.iter().any(|(k, v)| k == b"prefix:key2" && v == b"value2"));
     }
-    
+
     #[test]
-    fn test_write_batch() {
-        let temp_dir = tempdir().unwrap();
-        let store = RocksDBStore::new(temp_dir.path());
-        
-        // Create a batch operation
-        let mut batch = WriteBatchOperation::new();
-        batch.put(b"batch_key1".to_vec(), b"batch_value1".to_vec());
-        batch.put(b"batch_key2".to_vec(), b"batch_value2".to_vec());
-        
-        // Execute the batch
-        store.write_batch(batch).unwrap();
-        
-        // Verify the results
-        let value1 = store.get(b"batch_key1").unwrap().unwrap();
-        let value2 = store.get(b"batch_key2").unwrap().unwrap();
-        
-        assert_eq!(value1, b"batch_value1");
-        assert_eq!(value2, b"batch_value2");
-    }
-    
-    #[test]
-    fn test_flush() {
-        let temp_dir = tempdir().unwrap();
-        let store = RocksDBStore::new(temp_dir.path());
-        
-        // Put some data
-        store.put(b"flush_key", b"flush_value").unwrap();
-        
-        // Flush the database
-        store.flush().unwrap();
-        
-        // Verify the data is still there
-        let value = store.get(b"flush_key").unwrap().unwrap();
-        assert_eq!(value, b"flush_value");
+    fn test_memory_store() {
+        let store = MemoryStore::new();
+
+        // Test put and get
+        store.put(b"key1", b"value1").unwrap();
+        let value = store.get(b"key1").unwrap().unwrap();
+        assert_eq!(value, b"value1");
+
+        // Test exists
+        assert!(store.exists(b"key1").unwrap());
+        assert!(!store.exists(b"key2").unwrap());
+
+        // Test delete
+        store.delete(b"key1").unwrap();
+        assert!(!store.exists(b"key1").unwrap());
+
+        // Test batch operations
+        let operations = vec![
+            WriteBatchOperation::Put { key: b"key1".to_vec(), value: b"value1".to_vec() },
+            WriteBatchOperation::Put { key: b"key2".to_vec(), value: b"value2".to_vec() },
+            WriteBatchOperation::Delete { key: b"key1".to_vec() },
+        ];
+        store.write_batch(operations).unwrap();
+
+        assert!(!store.exists(b"key1").unwrap());
+        assert!(store.exists(b"key2").unwrap());
+
+        // Test prefix scan
+        store.put(b"prefix:key1", b"value1").unwrap();
+        store.put(b"prefix:key2", b"value2").unwrap();
+        store.put(b"other:key3", b"value3").unwrap();
+
+        let results = store.scan_prefix(b"prefix:").unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|(k, v)| k == b"prefix:key1" && v == b"value1"));
+        assert!(results.iter().any(|(k, v)| k == b"prefix:key2" && v == b"value2"));
     }
 }
