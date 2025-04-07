@@ -25,6 +25,10 @@ pub mod state_manager;
 pub mod mempool;
 pub mod snapshot;
 pub mod state;
+pub mod state_validation;
+pub mod state_pruning;
+pub mod state_sharding;
+pub mod state_sync;
 
 // Re-export common types
 pub use block_store::{Block, Hash, BlockStore};
@@ -40,3 +44,7 @@ pub use state_manager::StateManager;
 pub use mempool::{MempoolStore, MempoolTransactionMetadata, MempoolStorageError};
 pub use snapshot::{SnapshotManager, SnapshotConfig, SnapshotMetadata, SnapshotType, CompressionType, SnapshotError};
 pub use state::{AccountState, AccountType, StateRoot, StateError, StateResult, GlobalState, ChainParameters, StateTransition, AccountChange, AccountChangeType};
+pub use state_validation::{StateValidator, ValidationError, ValidationResult};
+pub use state_pruning::{StatePruner, PruningMode, PrunerConfig, PruningError, PruningResult, PruningStats};
+pub use state_sharding::{StateShardingManager, StateShard, ShardingStrategy, ShardConfig, ShardingError, ShardingResult};
+pub use state_sync::{StateSynchronizer, SyncMode, SyncConfig, SyncStatus, SyncProgress, SyncError, SyncResult, NetworkClient};
