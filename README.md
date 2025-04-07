@@ -193,7 +193,7 @@ Vibecoin was developed through vibecoding, a process guided by flow, intuition, 
 
 - Code that feels as good as it runs
 
-The use of Vobe Code ensures that Vibecoin maintains the highest standards of code quality, with strict enforcement of best practices such as our 1000-line limit for Rust files.
+The use of Vobecode ensures that Vibecoin maintains the highest standards of code quality, with strict enforcement of best practices such as our 1000-line limit for Rust files.
 
 ## 🤝 Contributing
 
