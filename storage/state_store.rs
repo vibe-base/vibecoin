@@ -5,7 +5,8 @@ use log::{debug, error, info, warn};
 use hex;
 
 use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
-use crate::storage::block_store::Hash;
+use crate::storage::block_store::{Hash, Block};
+use crate::storage::tx_store::{TxStore, TransactionStatus, TransactionError};
 
 /// Account state structure
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -509,6 +510,161 @@ impl<'a> StateStore<'a> {
     pub fn clear_cache(&self) {
         self.account_cache.clear();
     }
+
+    /// Apply a block's transactions to the state store
+    ///
+    /// This method processes all transactions in a block and updates the account states accordingly.
+    /// It ensures that transactions are applied in the correct order and validates each transaction
+    /// before applying it.
+    ///
+    /// # Arguments
+    ///
+    /// * `block` - The block containing transactions to apply
+    /// * `tx_store` - The transaction store to retrieve transaction details
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), StateStoreError>` - Success or error
+    pub fn apply_block(&self, block: &Block, tx_store: &TxStore) -> Result<(), StateStoreError> {
+        info!("Applying block {} with {} transactions", block.height, block.transactions.len());
+
+        // Create a batch operation for all state changes
+        let mut batch = WriteBatchOperation::new();
+
+        // Track modified accounts to update them in one batch
+        let mut modified_accounts: HashMap<Hash, AccountState> = HashMap::new();
+
+        // Process each transaction in the block
+        for tx_hash in &block.transactions {
+            // Get the transaction details
+            let tx = match tx_store.get_transaction(tx_hash) {
+                Some(tx) => tx,
+                None => {
+                    error!("Transaction {} not found in tx_store", hex::encode(tx_hash));
+                    return Err(StateStoreError::Other(format!("Transaction {} not found", hex::encode(tx_hash))));
+                }
+            };
+
+            // Verify transaction block height matches current block
+            if tx.block_height != block.height {
+                warn!("Transaction {} has mismatched block height: {} vs {}",
+                      hex::encode(&tx.tx_id), tx.block_height, block.height);
+            }
+
+            // Get or create sender account state
+            let sender_addr_str = hex::encode(&tx.sender);
+            let mut sender = match modified_accounts.get(&tx.sender) {
+                Some(state) => state.clone(),
+                None => self.get_account_state(&tx.sender)
+                    .ok_or_else(|| StateStoreError::AccountNotFound(sender_addr_str.clone()))?,
+            };
+
+            // Verify sender has sufficient balance
+            let total_cost = tx.value + (tx.gas_used * tx.gas_price);
+            if sender.balance < total_cost {
+                error!("Insufficient balance for tx {}: required {}, available {}",
+                       hex::encode(&tx.tx_id), total_cost, sender.balance);
+
+                // Update transaction status to failed
+                tx_store.update_transaction_status(
+                    &tx.tx_id,
+                    TransactionStatus::Failed(TransactionError::InsufficientBalance)
+                )?;
+
+                continue; // Skip this transaction and move to the next
+            }
+
+            // Verify nonce
+            if tx.nonce != sender.nonce {
+                error!("Invalid nonce for tx {}: expected {}, got {}",
+                       hex::encode(&tx.tx_id), sender.nonce, tx.nonce);
+
+                // Update transaction status to failed
+                tx_store.update_transaction_status(
+                    &tx.tx_id,
+                    TransactionStatus::Failed(TransactionError::InvalidNonce)
+                )?;
+
+                continue; // Skip this transaction and move to the next
+            }
+
+            // Get or create recipient account state
+            let recipient_addr_str = hex::encode(&tx.recipient);
+            let mut recipient = match modified_accounts.get(&tx.recipient) {
+                Some(state) => state.clone(),
+                None => self.get_account_state(&tx.recipient).unwrap_or_else(|| {
+                    // Create new account if it doesn't exist
+                    AccountState {
+                        balance: 0,
+                        nonce: 0,
+                        code: None,
+                        storage: HashMap::new(),
+                        last_updated: block.height,
+                        account_type: AccountType::User,
+                    }
+                }),
+            };
+
+            // Update account states
+            sender.balance -= total_cost;
+            sender.nonce += 1;
+            sender.last_updated = block.height;
+
+            recipient.balance += tx.value;
+            recipient.last_updated = block.height;
+
+            // Handle contract execution if this is a contract call
+            if let Some(data) = &tx.data {
+                if recipient.account_type == AccountType::Contract && recipient.code.is_some() {
+                    // In a real implementation, we would execute the contract code here
+                    // For now, we'll just log that a contract call was made
+                    debug!("Contract call in tx {}: {} -> {}",
+                           hex::encode(&tx.tx_id), sender_addr_str, recipient_addr_str);
+                }
+            }
+
+            // Store updated account states in our tracking map
+            modified_accounts.insert(tx.sender, sender);
+            modified_accounts.insert(tx.recipient, recipient);
+
+            // Update transaction status to confirmed
+            tx_store.update_transaction_status(&tx.tx_id, TransactionStatus::Confirmed)?;
+        }
+
+        // Prepare batch operations for all modified accounts
+        for (address, state) in modified_accounts {
+            let addr_str = hex::encode(&address);
+            let key = format!("state:account:{}", addr_str);
+
+            let value = bincode::serialize(&state)
+                .map_err(|e| StateStoreError::SerializationError(e.to_string()))?;
+
+            batch.put(key.as_bytes().to_vec(), value);
+
+            // Update the cache
+            self.add_to_cache(addr_str, state);
+        }
+
+        // Execute the batch
+        self.store.write_batch(batch)?;
+
+        // Invalidate the state root since we've modified the state
+        let mut state_root = self.state_root.write().unwrap();
+        *state_root = None;
+
+        // Calculate the new state root
+        drop(state_root); // Release the write lock before calculating
+        let new_root = self.calculate_state_root(block.height, block.timestamp)?;
+
+        // Verify that the calculated state root matches the block's state root
+        if new_root.root_hash != block.state_root {
+            warn!("Calculated state root {} does not match block's state root {}",
+                  hex::encode(&new_root.root_hash), hex::encode(&block.state_root));
+        }
+
+        info!("Successfully applied block {} with {} transactions", block.height, block.transactions.len());
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -699,5 +855,162 @@ mod tests {
 
         // Cache should be empty now
         assert_eq!(state_store.account_cache.len(), 0);
+    }
+
+    #[test]
+    fn test_apply_block() {
+        let temp_dir = tempdir().unwrap();
+        let kv_store = RocksDBStore::new(temp_dir.path());
+        let state_store = StateStore::new(&kv_store);
+        let tx_store = TxStore::new(&kv_store);
+
+        // Create sender and recipient accounts
+        let sender = [1; 32];
+        let recipient = [2; 32];
+
+        state_store.create_account(&sender, 1000, AccountType::User).unwrap();
+        state_store.create_account(&recipient, 500, AccountType::User).unwrap();
+
+        // Create a transaction
+        let tx = TransactionRecord {
+            tx_id: [10; 32],
+            sender,
+            recipient,
+            value: 300,
+            gas_price: 5,
+            gas_limit: 21000,
+            gas_used: 10,
+            nonce: 0, // Matches the sender's initial nonce
+            timestamp: 12345,
+            block_height: 1, // Will be included in block 1
+            data: None,
+            status: TransactionStatus::Included,
+        };
+
+        // Store the transaction
+        tx_store.put_transaction(&tx).unwrap();
+
+        // Create a block with this transaction
+        let block = Block {
+            height: 1,
+            hash: [20; 32],
+            prev_hash: [0; 32],
+            timestamp: 12345,
+            transactions: vec![tx.tx_id],
+            state_root: [0; 32], // This would normally be calculated
+            nonce: 42,
+            poh_seq: 100,
+            poh_hash: [30; 32],
+            difficulty: 1000,
+            total_difficulty: 1000,
+        };
+
+        // Apply the block
+        state_store.apply_block(&block, &tx_store).unwrap();
+
+        // Verify account states
+        let sender_state = state_store.get_account_state(&sender).unwrap();
+        let recipient_state = state_store.get_account_state(&recipient).unwrap();
+
+        // Sender should have 1000 - 300 - (10 * 5) = 650 balance and nonce incremented
+        assert_eq!(sender_state.balance, 650);
+        assert_eq!(sender_state.nonce, 1);
+
+        // Recipient should have 500 + 300 = 800 balance
+        assert_eq!(recipient_state.balance, 800);
+
+        // Transaction status should be updated to Confirmed
+        let updated_tx = tx_store.get_transaction(&tx.tx_id).unwrap();
+        assert_eq!(updated_tx.status, TransactionStatus::Confirmed);
+    }
+
+    #[test]
+    fn test_apply_block_with_invalid_transactions() {
+        let temp_dir = tempdir().unwrap();
+        let kv_store = RocksDBStore::new(temp_dir.path());
+        let state_store = StateStore::new(&kv_store);
+        let tx_store = TxStore::new(&kv_store);
+
+        // Create sender and recipient accounts
+        let sender = [1; 32];
+        let recipient = [2; 32];
+
+        state_store.create_account(&sender, 100, AccountType::User).unwrap(); // Only 100 balance
+        state_store.create_account(&recipient, 500, AccountType::User).unwrap();
+
+        // Create a transaction with insufficient balance
+        let tx1 = TransactionRecord {
+            tx_id: [10; 32],
+            sender,
+            recipient,
+            value: 300, // More than sender's balance
+            gas_price: 5,
+            gas_limit: 21000,
+            gas_used: 10,
+            nonce: 0,
+            timestamp: 12345,
+            block_height: 1,
+            data: None,
+            status: TransactionStatus::Included,
+        };
+
+        // Create a transaction with invalid nonce
+        let tx2 = TransactionRecord {
+            tx_id: [11; 32],
+            sender,
+            recipient,
+            value: 50, // Valid amount
+            gas_price: 5,
+            gas_limit: 21000,
+            gas_used: 10,
+            nonce: 5, // Invalid nonce (should be 0)
+            timestamp: 12345,
+            block_height: 1,
+            data: None,
+            status: TransactionStatus::Included,
+        };
+
+        // Store the transactions
+        tx_store.put_transaction(&tx1).unwrap();
+        tx_store.put_transaction(&tx2).unwrap();
+
+        // Create a block with these transactions
+        let block = Block {
+            height: 1,
+            hash: [20; 32],
+            prev_hash: [0; 32],
+            timestamp: 12345,
+            transactions: vec![tx1.tx_id, tx2.tx_id],
+            state_root: [0; 32],
+            nonce: 42,
+            poh_seq: 100,
+            poh_hash: [30; 32],
+            difficulty: 1000,
+            total_difficulty: 1000,
+        };
+
+        // Apply the block
+        state_store.apply_block(&block, &tx_store).unwrap();
+
+        // Verify account states - should be unchanged since both transactions failed
+        let sender_state = state_store.get_account_state(&sender).unwrap();
+        let recipient_state = state_store.get_account_state(&recipient).unwrap();
+
+        assert_eq!(sender_state.balance, 100); // Unchanged
+        assert_eq!(sender_state.nonce, 0); // Unchanged
+        assert_eq!(recipient_state.balance, 500); // Unchanged
+
+        // Transaction statuses should be updated to Failed
+        let updated_tx1 = tx_store.get_transaction(&tx1.tx_id).unwrap();
+        match updated_tx1.status {
+            TransactionStatus::Failed(TransactionError::InsufficientBalance) => {}, // Expected
+            _ => panic!("Expected InsufficientBalance error"),
+        }
+
+        let updated_tx2 = tx_store.get_transaction(&tx2.tx_id).unwrap();
+        match updated_tx2.status {
+            TransactionStatus::Failed(TransactionError::InvalidNonce) => {}, // Expected
+            _ => panic!("Expected InvalidNonce error"),
+        }
     }
 }
