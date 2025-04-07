@@ -20,6 +20,8 @@ pub mod state_store;
 pub mod poh_store;
 pub mod trie;
 pub mod batch_operations;
+pub mod rocksdb_schema;
+pub mod state_manager;
 
 // Re-export common types
 pub use block_store::{Block, Hash, BlockStore};
@@ -30,3 +32,5 @@ pub use poh_store::{PoHEntry, PoHStore};
 pub use trie::mpt::{MerklePatriciaTrie, Proof, ProofItem};
 pub use trie::node::Node;
 pub use batch_operations::{BatchOperationManager, BatchOperationError};
+pub use rocksdb_schema::{Schema, KeyType, RocksDBManager, DatabaseStats};
+pub use state_manager::StateManager;
