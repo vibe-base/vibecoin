@@ -244,7 +244,7 @@ impl ConsensusEngine {
         let chain_state = self.chain_state.lock().await.clone();
 
         // Process the block using the block processor
-        let result = self.block_processor.process_block(&block, &chain_state.current_target).await;
+        let result = self.block_processor.process_block(&block, &chain_state.current_target, &chain_state).await;
 
         match result {
             BlockProcessingResult::Success => {

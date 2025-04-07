@@ -89,6 +89,11 @@ impl<'a> BlockValidator<'a> {
             return BlockValidationResult::Invalid("Invalid state root".to_string());
         }
 
+        // Validate Proof of History
+        if !self.validate_poh(block) {
+            return BlockValidationResult::Invalid("Invalid Proof of History".to_string());
+        }
+
         // All checks passed
         BlockValidationResult::Valid
     }
@@ -192,9 +197,13 @@ impl<'a> BlockValidator<'a> {
 
         // Get the previous block to start from its state
         let prev_block = match self.block_store.get_block_by_hash(&block.prev_hash) {
-            Some(b) => b,
-            None => {
+            Ok(Some(b)) => b,
+            Ok(None) => {
                 error!("Previous block {} not found", hex::encode(&block.prev_hash));
+                return false;
+            },
+            Err(e) => {
+                error!("Error retrieving previous block: {}", e);
                 return false;
             }
         };
@@ -222,6 +231,61 @@ impl<'a> BlockValidator<'a> {
             error!("State root mismatch: expected {}, calculated {}",
                    hex::encode(&block.state_root), hex::encode(&calculated_state_root));
             return false;
+        }
+
+        true
+    }
+
+    /// Validate the Proof of History
+    fn validate_poh(&self, block: &Block) -> bool {
+        // For genesis block, we accept any PoH
+        if block.height == 0 {
+            return true;
+        }
+
+        // Get the previous block
+        let prev_block = match self.block_store.get_block_by_hash(&block.prev_hash) {
+            Ok(Some(b)) => b,
+            Ok(None) => {
+                error!("Previous block {} not found", hex::encode(&block.prev_hash));
+                return false;
+            },
+            Err(e) => {
+                error!("Error retrieving previous block: {}", e);
+                return false;
+            }
+        };
+
+        // Verify the PoH sequence
+        if !self.poh_verifier.verify_sequence(
+            &prev_block.poh_hash,
+            &block.poh_hash,
+            block.poh_seq - prev_block.poh_seq
+        ) {
+            error!("Invalid PoH sequence: prev_seq={}, curr_seq={}",
+                   prev_block.poh_seq, block.poh_seq);
+            return false;
+        }
+
+        // Verify that the PoH sequence number is increasing
+        if block.poh_seq <= prev_block.poh_seq {
+            error!("PoH sequence not increasing: prev_seq={}, curr_seq={}",
+                   prev_block.poh_seq, block.poh_seq);
+            return false;
+        }
+
+        // Verify that the PoH sequence is within reasonable bounds
+        let expected_ticks = (block.timestamp - prev_block.timestamp) * 100; // 100 ticks per second
+        let actual_ticks = block.poh_seq - prev_block.poh_seq;
+
+        // Allow for some variance (±20%)
+        let min_ticks = expected_ticks * 8 / 10;
+        let max_ticks = expected_ticks * 12 / 10;
+
+        if actual_ticks < min_ticks || actual_ticks > max_ticks {
+            warn!("PoH sequence count unusual: expected ~{}, got {}",
+                  expected_ticks, actual_ticks);
+            // This is just a warning, not a validation failure
         }
 
         true

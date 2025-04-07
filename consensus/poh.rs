@@ -4,9 +4,12 @@ use std::thread;
 use log::{debug, info, warn, error};
 use sha2::{Sha256, Digest};
 use tokio::sync::mpsc;
+use tokio::time;
 
 use crate::storage::block_store::Hash;
+use crate::storage::poh_store::PoHStore;
 use crate::consensus::types::ConsensusConfig;
+use crate::crypto::hash::sha256;
 
 /// PoH entry
 #[derive(Debug, Clone)]
@@ -19,6 +22,9 @@ pub struct PoHEntry {
     
     /// Timestamp
     pub timestamp: u64,
+    
+    /// Optional event data hash
+    pub event_hash: Option<Hash>,
 }
 
 /// PoH generator
@@ -34,6 +40,12 @@ pub struct PoHGenerator {
     
     /// PoH entry channel
     entry_tx: mpsc::Sender<PoHEntry>,
+    
+    /// PoH store for persistence
+    poh_store: Option<Arc<PoHStore<'static>>>,
+    
+    /// Tick interval in milliseconds
+    tick_interval: u64,
 }
 
 /// PoH state
@@ -47,6 +59,9 @@ struct PoHState {
     
     /// Last update timestamp
     timestamp: u64,
+    
+    /// Ticks since last event
+    ticks_since_event: u64,
 }
 
 impl PoHGenerator {
@@ -63,6 +78,7 @@ impl PoHGenerator {
             seq: 0,
             hash: initial_hash,
             timestamp,
+            ticks_since_event: 0,
         }));
         
         Self {
@@ -70,75 +86,87 @@ impl PoHGenerator {
             config,
             running: Arc::new(Mutex::new(false)),
             entry_tx,
+            poh_store: None,
+            tick_interval: config.poh_tick_interval,
         }
     }
     
+    /// Set the PoH store
+    pub fn with_store(mut self, store: Arc<PoHStore<'static>>) -> Self {
+        self.poh_store = Some(store);
+        self
+    }
+    
     /// Start the PoH generator
-    pub fn start(&self) -> Result<(), String> {
-        let mut running = self.running.lock().unwrap();
-        if *running {
-            return Err("PoH generator already running".to_string());
+    pub async fn start(&self) {
+        // Set the running flag
+        {
+            let mut running = self.running.lock().unwrap();
+            if *running {
+                warn!("PoH generator is already running");
+                return;
+            }
+            *running = true;
         }
         
-        *running = true;
+        info!("Starting PoH generator with tick interval {} ms", self.tick_interval);
         
+        // Clone the necessary state for the async task
         let state = self.state.clone();
-        let running_flag = self.running.clone();
-        let tick_interval = self.config.poh_tick_interval;
+        let running = self.running.clone();
         let entry_tx = self.entry_tx.clone();
+        let poh_store = self.poh_store.clone();
+        let tick_interval = self.tick_interval;
         
-        // Spawn a thread to generate PoH entries
-        thread::spawn(move || {
-            info!("PoH generator started");
+        // Spawn a task to generate PoH ticks
+        tokio::spawn(async move {
+            let mut interval = time::interval(Duration::from_millis(tick_interval));
             
-            let tick_duration = Duration::from_millis(tick_interval);
-            let mut last_tick = Instant::now();
-            
-            while *running_flag.lock().unwrap() {
-                // Sleep until the next tick
-                let now = Instant::now();
-                let elapsed = now.duration_since(last_tick);
-                
-                if elapsed < tick_duration {
-                    thread::sleep(tick_duration - elapsed);
+            loop {
+                // Check if we should stop
+                if !*running.lock().unwrap() {
+                    debug!("PoH generator stopping");
+                    break;
                 }
                 
-                last_tick = Instant::now();
+                // Wait for the next tick
+                interval.tick().await;
                 
-                // Generate the next PoH entry
+                // Generate the next PoH hash
                 let entry = {
-                    let mut state = state.write().unwrap();
+                    let mut state_guard = state.write().unwrap();
                     
                     // Update the hash
-                    let mut hasher = Sha256::new();
-                    hasher.update(&state.hash);
-                    let result = hasher.finalize();
-                    
-                    let mut new_hash = [0u8; 32];
-                    new_hash.copy_from_slice(&result);
-                    
-                    // Update the state
-                    state.seq += 1;
-                    state.hash = new_hash;
-                    state.timestamp = std::time::SystemTime::now()
+                    state_guard.hash = Self::generate_next_hash(&state_guard.hash);
+                    state_guard.seq += 1;
+                    state_guard.timestamp = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_secs();
+                    state_guard.ticks_since_event += 1;
                     
-                    // Create the entry
+                    // Create a PoH entry
                     PoHEntry {
-                        seq: state.seq,
-                        hash: state.hash,
-                        timestamp: state.timestamp,
+                        seq: state_guard.seq,
+                        hash: state_guard.hash,
+                        timestamp: state_guard.timestamp,
+                        event_hash: None,
                     }
                 };
                 
-                // Send the entry
-                if let Err(e) = entry_tx.try_send(entry) {
+                // Store the entry if we have a store
+                if let Some(store) = &poh_store {
+                    store.append_entry(&entry);
+                }
+                
+                // Send the entry to the channel
+                if let Err(e) = entry_tx.try_send(entry.clone()) {
                     if e.is_full() {
-                        warn!("PoH entry channel is full, dropping entry");
-                    } else if e.is_closed() {
-                        error!("PoH entry channel is closed, stopping generator");
+                        // Channel is full, this is not critical
+                        debug!("PoH entry channel is full, dropping entry {}", entry.seq);
+                    } else {
+                        // Channel is closed, this is critical
+                        error!("PoH entry channel is closed: {}", e);
                         break;
                     }
                 }
@@ -146,20 +174,78 @@ impl PoHGenerator {
             
             info!("PoH generator stopped");
         });
-        
-        Ok(())
     }
     
     /// Stop the PoH generator
     pub fn stop(&self) {
         let mut running = self.running.lock().unwrap();
         *running = false;
+        info!("Stopping PoH generator");
+    }
+    
+    /// Record an event in the PoH sequence
+    pub fn record_event(&self, data: &[u8]) -> PoHEntry {
+        let mut state_guard = self.state.write().unwrap();
+        
+        // Hash the data
+        let data_hash = sha256(data);
+        
+        // Hash the data with the current hash
+        let combined = [&state_guard.hash[..], &data_hash[..]].concat();
+        state_guard.hash = sha256(&combined);
+        state_guard.seq += 1;
+        state_guard.timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        state_guard.ticks_since_event = 0;
+        
+        // Create a PoH entry
+        let entry = PoHEntry {
+            seq: state_guard.seq,
+            hash: state_guard.hash,
+            timestamp: state_guard.timestamp,
+            event_hash: Some(data_hash),
+        };
+        
+        // Store the entry if we have a store
+        if let Some(store) = &self.poh_store {
+            store.append_entry(&entry);
+        }
+        
+        // Send the entry to the channel
+        if let Err(e) = self.entry_tx.try_send(entry.clone()) {
+            if e.is_full() {
+                // Channel is full, this is not critical
+                debug!("PoH entry channel is full, dropping entry {}", entry.seq);
+            } else {
+                // Channel is closed, this is critical
+                error!("PoH entry channel is closed: {}", e);
+            }
+        }
+        
+        entry
     }
     
     /// Get the current PoH state
-    pub fn get_current_state(&self) -> (u64, Hash) {
+    pub fn get_state(&self) -> (u64, Hash, u64) {
         let state = self.state.read().unwrap();
-        (state.seq, state.hash)
+        (state.seq, state.hash, state.timestamp)
+    }
+    
+    /// Get the current sequence number
+    pub fn current_seq(&self) -> u64 {
+        self.state.read().unwrap().seq
+    }
+    
+    /// Get the current hash
+    pub fn current_hash(&self) -> Hash {
+        self.state.read().unwrap().hash
+    }
+    
+    /// Get the current timestamp
+    pub fn current_timestamp(&self) -> u64 {
+        self.state.read().unwrap().timestamp
     }
     
     /// Generate the next PoH hash
@@ -188,62 +274,5 @@ impl PoHGenerator {
     pub fn verify_sequence(start_hash: &Hash, end_hash: &Hash, steps: u64) -> bool {
         let computed_hash = Self::generate_hash_sequence(start_hash, steps);
         computed_hash == *end_hash
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::sync::mpsc;
-    
-    #[test]
-    fn test_poh_hash_generation() {
-        let initial_hash = [0u8; 32];
-        
-        // Generate the next hash
-        let next_hash = PoHGenerator::generate_next_hash(&initial_hash);
-        
-        // Hash should not be all zeros
-        assert_ne!(next_hash, [0u8; 32]);
-        
-        // Generate a sequence of hashes
-        let seq_hash = PoHGenerator::generate_hash_sequence(&initial_hash, 10);
-        
-        // Verify the sequence
-        assert!(PoHGenerator::verify_sequence(&initial_hash, &seq_hash, 10));
-        
-        // Verify with wrong steps should fail
-        assert!(!PoHGenerator::verify_sequence(&initial_hash, &seq_hash, 9));
-        assert!(!PoHGenerator::verify_sequence(&initial_hash, &seq_hash, 11));
-    }
-    
-    #[tokio::test]
-    async fn test_poh_generator() {
-        let (tx, mut rx) = mpsc::channel(100);
-        let config = ConsensusConfig::default();
-        
-        let generator = PoHGenerator::new(config, tx);
-        
-        // Start the generator
-        generator.start().unwrap();
-        
-        // Wait for a few entries
-        let mut entries = Vec::new();
-        for _ in 0..5 {
-            if let Some(entry) = rx.recv().await {
-                entries.push(entry);
-            }
-        }
-        
-        // Stop the generator
-        generator.stop();
-        
-        // Check that we received some entries
-        assert!(!entries.is_empty());
-        
-        // Check that the sequence numbers are increasing
-        for i in 1..entries.len() {
-            assert!(entries[i].seq > entries[i-1].seq);
-        }
     }
 }

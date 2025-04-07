@@ -6,7 +6,8 @@ use crate::storage::{
     Block, TransactionRecord, AccountState, Hash,
 };
 use crate::consensus::validation::{BlockValidator, BlockValidationResult};
-use crate::consensus::types::Target;
+use crate::consensus::validation::fork_choice::{choose_fork, resolve_fork, ForkChoice};
+use crate::consensus::types::{Target, ChainState};
 use crate::consensus::mining::mempool::Mempool;
 
 /// Result of block processing
@@ -14,16 +15,16 @@ use crate::consensus::mining::mempool::Mempool;
 pub enum BlockProcessingResult {
     /// Block was successfully processed
     Success,
-    
+
     /// Block was already known
     AlreadyKnown,
-    
+
     /// Block has an unknown parent
     UnknownParent,
-    
+
     /// Block is invalid
     Invalid(String),
-    
+
     /// Error occurred during processing
     Error(String),
 }
@@ -32,19 +33,19 @@ pub enum BlockProcessingResult {
 pub struct BlockProcessor {
     /// Block store
     block_store: Arc<BlockStore>,
-    
+
     /// Transaction store
     tx_store: Arc<TxStore>,
-    
+
     /// State store
     state_store: Arc<StateStore>,
-    
+
     /// Batch operation manager
     batch_manager: Arc<BatchOperationManager>,
-    
+
     /// Block validator
     validator: Arc<BlockValidator>,
-    
+
     /// Mempool
     mempool: Option<Arc<Mempool>>,
 }
@@ -68,15 +69,65 @@ impl BlockProcessor {
             mempool,
         }
     }
-    
+
     /// Process a new block
-    pub async fn process_block(&self, block: &Block, target: &Target) -> BlockProcessingResult {
+    pub async fn process_block(&self, block: &Block, target: &Target, chain_state: &ChainState) -> BlockProcessingResult {
         info!("Processing block at height {}", block.height);
-        
+
         // Validate the block
         match self.validator.validate_block(block, target) {
             BlockValidationResult::Valid => {
                 debug!("Block is valid");
+
+                // Check if this block is part of the main chain or a fork
+                let fork_choice = choose_fork(&self.block_store, chain_state, block);
+
+                match fork_choice {
+                    ForkChoice::Accept => {
+                        // Block builds on the current chain, continue processing
+                        debug!("Block builds on current chain");
+                    },
+                    ForkChoice::Reject => {
+                        // Block is not part of the best chain, reject it
+                        warn!("Block rejected by fork choice rule: height={}", block.height);
+                        return BlockProcessingResult::Invalid("Rejected by fork choice rule".to_string());
+                    },
+                    ForkChoice::Fork => {
+                        // We have a fork, need to resolve it
+                        warn!("Fork detected at height {}", block.height);
+
+                        // Get the current tip
+                        let current_tip = match self.block_store.get_block_by_hash(&chain_state.latest_hash) {
+                            Ok(Some(tip)) => tip,
+                            Ok(None) => {
+                                error!("Current tip block not found");
+                                return BlockProcessingResult::Error("Current tip block not found".to_string());
+                            },
+                            Err(e) => {
+                                error!("Failed to get current tip: {}", e);
+                                return BlockProcessingResult::Error(format!("Failed to get current tip: {}", e));
+                            }
+                        };
+
+                        // Resolve the fork
+                        match resolve_fork(&self.block_store, &current_tip, block) {
+                            Ok(canonical_tip) => {
+                                if canonical_tip.hash != block.hash {
+                                    // The current chain is still the best chain
+                                    info!("Current chain is the canonical tip, rejecting new block");
+                                    return BlockProcessingResult::Invalid("Not the canonical tip".to_string());
+                                }
+
+                                // The new block is the canonical tip, continue processing
+                                info!("New block is the canonical tip, accepting it");
+                            },
+                            Err(e) => {
+                                error!("Failed to resolve fork: {}", e);
+                                return BlockProcessingResult::Error(format!("Failed to resolve fork: {}", e));
+                            }
+                        }
+                    }
+                }
             },
             BlockValidationResult::AlreadyKnown => {
                 debug!("Block already known: height={}", block.height);
@@ -91,7 +142,7 @@ impl BlockProcessor {
                 return BlockProcessingResult::Invalid(reason);
             }
         }
-        
+
         // Get the transactions for this block
         let transactions = match self.get_block_transactions(block) {
             Ok(txs) => txs,
@@ -100,7 +151,7 @@ impl BlockProcessor {
                 return BlockProcessingResult::Error(format!("Failed to get transactions: {}", e));
             }
         };
-        
+
         // Apply the transactions to get state changes
         let state_changes = match self.apply_transactions(block, &transactions) {
             Ok(changes) => changes,
@@ -109,17 +160,17 @@ impl BlockProcessor {
                 return BlockProcessingResult::Error(format!("Failed to apply transactions: {}", e));
             }
         };
-        
+
         // Commit the block, transactions, and state changes atomically
         match self.batch_manager.commit_block(block, &transactions, &state_changes) {
             Ok(_) => {
                 info!("Block committed successfully: height={}", block.height);
-                
+
                 // Update mempool to remove included transactions
                 if let Some(mempool) = &self.mempool {
                     self.update_mempool(block, mempool).await;
                 }
-                
+
                 BlockProcessingResult::Success
             },
             Err(e) => {
@@ -128,11 +179,11 @@ impl BlockProcessor {
             }
         }
     }
-    
+
     /// Get the transactions for a block
     fn get_block_transactions(&self, block: &Block) -> Result<Vec<TransactionRecord>, String> {
         let mut transactions = Vec::new();
-        
+
         for tx_hash in &block.transactions {
             match self.tx_store.get_transaction(tx_hash) {
                 Ok(Some(tx)) => {
@@ -159,17 +210,17 @@ impl BlockProcessor {
                 }
             }
         }
-        
+
         Ok(transactions)
     }
-    
+
     /// Apply transactions to get state changes
     fn apply_transactions(&self, block: &Block, transactions: &[TransactionRecord]) -> Result<Vec<(Hash, AccountState)>, String> {
         let mut state_changes = Vec::new();
-        
+
         // Create a temporary state store for validation
         let temp_state = self.state_store.clone_for_validation();
-        
+
         // Apply all transactions to the temporary state
         for tx in transactions {
             // Get sender account
@@ -182,7 +233,7 @@ impl BlockProcessor {
                     return Err(format!("Failed to get sender account: {}", e));
                 }
             };
-            
+
             // Get recipient account (or create if it doesn't exist)
             let recipient = match temp_state.get_account_state(&tx.recipient) {
                 Ok(Some(account)) => account,
@@ -206,35 +257,35 @@ impl BlockProcessor {
                     return Err(format!("Failed to get recipient account: {}", e));
                 }
             };
-            
+
             // Check sender balance
             if sender.balance < tx.value + tx.gas_price * tx.gas_used {
                 return Err(format!("Insufficient balance for sender: {}", hex::encode(&tx.sender)));
             }
-            
+
             // Update sender account
             let new_sender_balance = sender.balance - (tx.value + tx.gas_price * tx.gas_used);
             let new_sender_nonce = sender.nonce + 1;
-            
+
             let new_sender = AccountState {
                 balance: new_sender_balance,
                 nonce: new_sender_nonce,
                 account_type: sender.account_type,
             };
-            
+
             // Update recipient account
             let new_recipient_balance = recipient.balance + tx.value;
-            
+
             let new_recipient = AccountState {
                 balance: new_recipient_balance,
                 nonce: recipient.nonce,
                 account_type: recipient.account_type,
             };
-            
+
             // Add state changes
             state_changes.push((tx.sender, new_sender));
             state_changes.push((tx.recipient, new_recipient));
-            
+
             // Update the temporary state
             match temp_state.update_account(&tx.sender, &new_sender) {
                 Ok(()) => {},
@@ -242,7 +293,7 @@ impl BlockProcessor {
                     return Err(format!("Failed to update sender account: {}", e));
                 }
             }
-            
+
             match temp_state.update_account(&tx.recipient, &new_recipient) {
                 Ok(()) => {},
                 Err(e) => {
@@ -250,10 +301,10 @@ impl BlockProcessor {
                 }
             }
         }
-        
+
         Ok(state_changes)
     }
-    
+
     /// Update mempool to remove transactions included in the block
     async fn update_mempool(&self, block: &Block, mempool: &Mempool) {
         // Mark transactions as included in a block
@@ -261,11 +312,11 @@ impl BlockProcessor {
             mempool.mark_included(tx_hash);
         }
     }
-    
+
     /// Rollback a block
     pub async fn rollback_block(&self, height: u64) -> Result<(), String> {
         info!("Rolling back block at height {}", height);
-        
+
         match self.batch_manager.rollback_block(height) {
             Ok(()) => {
                 info!("Block rolled back successfully: height={}", height);
@@ -285,18 +336,18 @@ mod tests {
     use tempfile::tempdir;
     use crate::storage::{RocksDBStore, KVStore};
     use crate::storage::tx_store::TransactionStatus;
-    
+
     #[tokio::test]
     async fn test_block_processing() {
         // Create a temporary directory for the database
         let temp_dir = tempdir().unwrap();
         let kv_store = Arc::new(RocksDBStore::new(temp_dir.path()).unwrap());
-        
+
         // Create stores
         let block_store = Arc::new(BlockStore::new(&kv_store));
         let tx_store = Arc::new(TxStore::new(kv_store.as_ref()));
         let state_store = Arc::new(StateStore::new(kv_store.as_ref()));
-        
+
         // Create batch operation manager
         let batch_manager = Arc::new(BatchOperationManager::new(
             kv_store.clone(),
@@ -304,14 +355,14 @@ mod tests {
             tx_store.clone(),
             state_store.clone(),
         ));
-        
+
         // Create validator
         let validator = Arc::new(BlockValidator::new(
             block_store.clone(),
             tx_store.clone(),
             state_store.clone(),
         ));
-        
+
         // Create block processor
         let processor = BlockProcessor::new(
             block_store.clone(),
@@ -321,7 +372,7 @@ mod tests {
             validator.clone(),
             None,
         );
-        
+
         // Create a genesis block
         let genesis = Block {
             height: 0,
@@ -337,15 +388,24 @@ mod tests {
             difficulty: 1,
             total_difficulty: 1,
         };
-        
+
+        // Create a chain state
+        let chain_state = ChainState {
+            height: 0,
+            current_target: Target::from_difficulty(1),
+            latest_hash: [0u8; 32],
+            latest_timestamp: 0,
+            latest_poh_sequence: 0,
+        };
+
         // Process the genesis block
-        let result = processor.process_block(&genesis, &Target::from_difficulty(1)).await;
+        let result = processor.process_block(&genesis, &Target::from_difficulty(1), &chain_state).await;
         assert_eq!(result, BlockProcessingResult::Success);
-        
+
         // Create some accounts
         state_store.create_account(&[1u8; 32], 1000, crate::storage::AccountType::User).unwrap();
         state_store.create_account(&[2u8; 32], 0, crate::storage::AccountType::User).unwrap();
-        
+
         // Create a transaction
         let tx = TransactionRecord {
             tx_id: [3u8; 32],
@@ -361,10 +421,10 @@ mod tests {
             data: None,
             status: TransactionStatus::Confirmed,
         };
-        
+
         // Store the transaction
         tx_store.put_transaction(&tx).unwrap();
-        
+
         // Create a block with the transaction
         let block = Block {
             height: 1,
@@ -380,29 +440,38 @@ mod tests {
             difficulty: 1,
             total_difficulty: 2,
         };
-        
+
+        // Update the chain state to reflect the genesis block
+        let chain_state = ChainState {
+            height: 0,
+            current_target: Target::from_difficulty(1),
+            latest_hash: [0u8; 32],
+            latest_timestamp: 0,
+            latest_poh_sequence: 0,
+        };
+
         // Process the block
-        let result = processor.process_block(&block, &Target::from_difficulty(1)).await;
+        let result = processor.process_block(&block, &Target::from_difficulty(1), &chain_state).await;
         assert_eq!(result, BlockProcessingResult::Success);
-        
+
         // Check that the block was stored
         let stored_block = block_store.get_block_by_height(1).unwrap().unwrap();
         assert_eq!(stored_block.hash, block.hash);
-        
+
         // Check that the transaction was stored
         let stored_tx = tx_store.get_transaction(&[3u8; 32]).unwrap().unwrap();
         assert_eq!(stored_tx.value, 100);
-        
+
         // Check that the state was updated
         let sender_state = state_store.get_account_state(&[1u8; 32]).unwrap().unwrap();
         assert_eq!(sender_state.balance, 879); // 1000 - 100 - 21
-        
+
         let recipient_state = state_store.get_account_state(&[2u8; 32]).unwrap().unwrap();
         assert_eq!(recipient_state.balance, 100);
-        
+
         // Rollback the block
         processor.rollback_block(1).await.unwrap();
-        
+
         // Check that the block was removed
         assert!(block_store.get_block_by_height(1).unwrap().is_none());
     }
