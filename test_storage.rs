@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use tempfile::tempdir;
+use vibecoin::storage::KVStore;
 
 fn main() {
     println!("Testing VibeCoin Storage System");

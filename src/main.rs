@@ -8,7 +8,9 @@ use vibecoin::init_logger;
 use vibecoin::config::Config;
 use vibecoin::storage::{RocksDBStore, BlockStore, TxStore, StateStore, BatchOperationManager};
 use vibecoin::consensus::start_consensus;
+use vibecoin::consensus::config::ConsensusConfig;
 use vibecoin::network::start_network;
+use vibecoin::network::NetworkConfig;
 use vibecoin::tools::genesis::generate_genesis;
 
 #[derive(Debug, StructOpt)]
@@ -190,10 +192,55 @@ async fn main() {
         std::fs::create_dir_all(db_path).expect("Failed to create database directory");
     }
 
+    // Create a RocksDBStore with 'static lifetime
     let kv_store = Arc::new(RocksDBStore::new(db_path).expect("Failed to initialize RocksDB"));
-    let block_store = Arc::new(BlockStore::new(kv_store.as_ref()));
-    let tx_store = Arc::new(TxStore::new(kv_store.as_ref()));
-    let state_store = Arc::new(StateStore::new(kv_store.as_ref()));
+
+    // Create a wrapper struct that implements KVStore and has a 'static lifetime
+    struct StaticKVStore {
+        inner: Arc<RocksDBStore>,
+    }
+
+    impl vibecoin::storage::KVStore for StaticKVStore {
+        fn put(&self, key: &[u8], value: &[u8]) -> Result<(), vibecoin::storage::kv_store::KVStoreError> {
+            self.inner.put(key, value)
+        }
+
+        fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, vibecoin::storage::kv_store::KVStoreError> {
+            self.inner.get(key)
+        }
+
+        fn delete(&self, key: &[u8]) -> Result<(), vibecoin::storage::kv_store::KVStoreError> {
+            self.inner.delete(key)
+        }
+
+        fn exists(&self, key: &[u8]) -> Result<bool, vibecoin::storage::kv_store::KVStoreError> {
+            self.inner.exists(key)
+        }
+
+        fn write_batch(&self, operations: Vec<vibecoin::storage::kv_store::WriteBatchOperation>) -> Result<(), vibecoin::storage::kv_store::KVStoreError> {
+            self.inner.write_batch(operations)
+        }
+
+        fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, vibecoin::storage::kv_store::KVStoreError> {
+            self.inner.scan_prefix(prefix)
+        }
+
+        fn flush(&self) -> Result<(), vibecoin::storage::kv_store::KVStoreError> {
+            self.inner.flush()
+        }
+    }
+
+    // Create a static KVStore
+    let static_kv_store = Arc::new(StaticKVStore { inner: kv_store.clone() });
+
+    // Create a static reference to the KVStore
+    // This is safe because these stores will live for the entire program
+    let static_kv_store_box = Box::new(StaticKVStore { inner: kv_store.clone() });
+    let kv_store_static = Box::leak(static_kv_store_box) as &'static StaticKVStore;
+
+    let block_store = Arc::new(BlockStore::new(kv_store_static));
+    let tx_store = Arc::new(TxStore::new(kv_store_static));
+    let state_store = Arc::new(StateStore::new(kv_store_static));
 
     // Create batch operation manager
     let batch_manager = Arc::new(BatchOperationManager::new(
@@ -236,17 +283,19 @@ async fn main() {
 
     // Initialize network
     info!("Initializing network...");
-    let (network_tx, network_rx) = mpsc::channel(100);
-    let (block_tx, block_rx) = mpsc::channel(100);
-    let (tx_tx, tx_rx) = mpsc::channel(1000);
+    let (network_tx, network_rx) = mpsc::channel::<vibecoin::network::types::message::NetMessage>(100);
+    let (block_tx, block_rx) = mpsc::channel::<vibecoin::storage::block_store::Block>(100);
+    let (tx_tx, tx_rx) = mpsc::channel::<vibecoin::storage::tx_store::TransactionRecord>(1000);
 
     // Convert config.network to NetworkConfig
-    let network_config = network::NetworkConfig {
-        listen_addr: config.network.listen_addr.clone(),
-        bootstrap_nodes: config.network.bootstrap_nodes.clone(),
-        max_peers: config.network.max_peers,
-        node_key: config.network.node_key.clone(),
-        node_name: config.network.node_name.clone(),
+    let network_config = NetworkConfig {
+        bind_addr: format!("{}:{}", config.network.listen_addr, config.network.listen_port).parse().unwrap(),
+        seed_peers: config.network.bootstrap_nodes.iter()
+            .filter_map(|addr| addr.parse().ok())
+            .collect(),
+        max_outbound: config.network.max_peers / 2,
+        max_inbound: config.network.max_peers,
+        node_id: config.node.node_name.clone(),
     };
 
     let network = start_network(network_config).await;
@@ -254,16 +303,19 @@ async fn main() {
     // Initialize consensus
     info!("Initializing consensus...");
     // Convert config.consensus to ConsensusConfig
-    let consensus_config = consensus::config::ConsensusConfig {
-        mining_enabled: config.consensus.mining_enabled,
-        miner_threads: config.consensus.miner_threads,
+    let consensus_config = ConsensusConfig {
+        enable_mining: config.consensus.enable_mining,
+        mining_threads: config.consensus.mining_threads,
         target_block_time: config.consensus.target_block_time,
         initial_difficulty: config.consensus.initial_difficulty,
+        difficulty_adjustment_window: config.consensus.difficulty_adjustment_interval,
+        max_transactions_per_block: config.consensus.max_transactions_per_block,
+        poh_tick_rate: 400_000, // Default value
     };
 
     let consensus = start_consensus(
         consensus_config,
-        kv_store.clone(),
+        static_kv_store,
         block_store.clone(),
         tx_store.clone(),
         state_store.clone(),
