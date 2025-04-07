@@ -9,7 +9,7 @@ fn main() {
     println!("Created temporary directory at: {:?}", temp_dir.path());
 
     // Create a RocksDB store
-    let store = match vibecoin::storage::RocksDBStore::new(temp_dir.path()) {
+    let store = match vibecoin::storage::kv_store::RocksDBStore::new(temp_dir.path()) {
         Ok(store) => {
             println!("Successfully created RocksDBStore");
             store
@@ -102,7 +102,7 @@ fn main() {
         Ok(results) => {
             println!("Successfully scanned prefix, found {} results", results.len());
             assert_eq!(results.len(), 2);
-            for (key, value) in results {
+            for (key, value) in results.iter() {
                 println!("Key: {:?}, Value: {:?}", String::from_utf8_lossy(&key), String::from_utf8_lossy(&value));
             }
         },

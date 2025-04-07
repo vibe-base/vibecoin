@@ -6,6 +6,7 @@
 pub mod debug;
 pub mod monitoring;
 pub mod development;
+pub mod genesis;
 
 // Re-export common tools
 pub use debug::DebugTools;

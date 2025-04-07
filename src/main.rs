@@ -240,22 +240,34 @@ async fn main() {
     let (block_tx, block_rx) = mpsc::channel(100);
     let (tx_tx, tx_rx) = mpsc::channel(1000);
 
-    let network = start_network(
-        config.network.clone(),
-        network_rx,
-        block_tx,
-        tx_tx,
-    ).await;
+    // Convert config.network to NetworkConfig
+    let network_config = network::NetworkConfig {
+        listen_addr: config.network.listen_addr.clone(),
+        bootstrap_nodes: config.network.bootstrap_nodes.clone(),
+        max_peers: config.network.max_peers,
+        node_key: config.network.node_key.clone(),
+        node_name: config.network.node_name.clone(),
+    };
+
+    let network = start_network(network_config).await;
 
     // Initialize consensus
     info!("Initializing consensus...");
+    // Convert config.consensus to ConsensusConfig
+    let consensus_config = consensus::config::ConsensusConfig {
+        mining_enabled: config.consensus.mining_enabled,
+        miner_threads: config.consensus.miner_threads,
+        target_block_time: config.consensus.target_block_time,
+        initial_difficulty: config.consensus.initial_difficulty,
+    };
+
     let consensus = start_consensus(
-        config.consensus.clone(),
+        consensus_config,
         kv_store.clone(),
         block_store.clone(),
         tx_store.clone(),
         state_store.clone(),
-        network_tx,
+        network_tx.clone(),
     ).await;
 
     info!("Vibecoin node started successfully");

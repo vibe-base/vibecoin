@@ -4,21 +4,23 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use log::{info, warn, error};
 
-use vibecoin::storage::{Block, Hash, AccountState, AccountType};
-use vibecoin::crypto::hash::hash_sha256;
+use crate::storage::block_store::{Block, Hash};
+use crate::consensus::types::BlockHeader;
+use crate::storage::state::{AccountState, AccountType};
+use crate::crypto::hash::sha256;
 
 /// Genesis configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// Chain ID
     pub chain_id: u64,
-    
+
     /// Genesis timestamp
     pub timestamp: u64,
-    
+
     /// Initial difficulty
     pub initial_difficulty: u64,
-    
+
     /// Initial accounts
     pub initial_accounts: HashMap<String, GenesisAccount>,
 }
@@ -28,7 +30,7 @@ pub struct GenesisConfig {
 pub struct GenesisAccount {
     /// Initial balance
     pub balance: u64,
-    
+
     /// Account type
     pub account_type: String,
 }
@@ -36,7 +38,7 @@ pub struct GenesisAccount {
 impl Default for GenesisConfig {
     fn default() -> Self {
         let mut initial_accounts = HashMap::new();
-        
+
         // Add some initial accounts
         initial_accounts.insert(
             "0000000000000000000000000000000000000000000000000000000000000001".to_string(),
@@ -45,7 +47,7 @@ impl Default for GenesisConfig {
                 account_type: "User".to_string(),
             },
         );
-        
+
         initial_accounts.insert(
             "0000000000000000000000000000000000000000000000000000000000000002".to_string(),
             GenesisAccount {
@@ -53,7 +55,7 @@ impl Default for GenesisConfig {
                 account_type: "User".to_string(),
             },
         );
-        
+
         Self {
             chain_id: 1,
             timestamp: 1609459200, // 2021-01-01 00:00:00 UTC
@@ -68,33 +70,33 @@ impl GenesisConfig {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let config_str = fs::read_to_string(path)
             .map_err(|e| format!("Failed to read genesis config file: {}", e))?;
-        
+
         let config: GenesisConfig = toml::from_str(&config_str)
             .map_err(|e| format!("Failed to parse genesis config file: {}", e))?;
-        
+
         Ok(config)
     }
-    
+
     /// Save genesis configuration to a file
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         let config_str = toml::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize genesis config: {}", e))?;
-        
+
         fs::write(path, config_str)
             .map_err(|e| format!("Failed to write genesis config file: {}", e))?;
-        
+
         Ok(())
     }
-    
+
     /// Generate a default genesis configuration file if it doesn't exist
     pub fn generate_default<P: AsRef<Path>>(path: P) -> Result<(), String> {
         let path = path.as_ref();
-        
+
         if path.exists() {
             info!("Genesis config file already exists at {:?}", path);
             return Ok(());
         }
-        
+
         // Create parent directory if it doesn't exist
         if let Some(parent) = path.parent() {
             if !parent.exists() {
@@ -102,17 +104,17 @@ impl GenesisConfig {
                     .map_err(|e| format!("Failed to create genesis config directory: {}", e))?;
             }
         }
-        
+
         // Create default config
         let config = GenesisConfig::default();
-        
+
         // Save config
         config.save(path)?;
-        
+
         info!("Generated default genesis config at {:?}", path);
         Ok(())
     }
-    
+
     /// Generate a genesis block from the configuration
     pub fn generate_block(&self) -> Block {
         // Create an empty block
@@ -130,7 +132,7 @@ impl GenesisConfig {
             difficulty: self.initial_difficulty,
             total_difficulty: self.initial_difficulty as u128,
         };
-        
+
         // Calculate the block hash
         let block_data = format!(
             "{}:{}:{}:{}:{}:{}",
@@ -141,24 +143,24 @@ impl GenesisConfig {
             hex::encode(&block.tx_root),
             block.nonce
         );
-        
-        block.hash = hash_sha256(block_data.as_bytes());
-        
+
+        block.hash = sha256(block_data.as_bytes());
+
         block
     }
-    
+
     /// Generate initial account states from the configuration
     pub fn generate_account_states(&self) -> Vec<(Hash, AccountState)> {
         let mut account_states = Vec::new();
-        
+
         for (address_hex, account) in &self.initial_accounts {
             // Parse the address
             let address_bytes = hex::decode(address_hex)
                 .expect("Invalid address hex in genesis config");
-            
+
             let mut address = [0u8; 32];
             address.copy_from_slice(&address_bytes);
-            
+
             // Parse the account type
             let account_type = match account.account_type.as_str() {
                 "User" => AccountType::User,
@@ -169,17 +171,18 @@ impl GenesisConfig {
                     AccountType::User
                 }
             };
-            
+
             // Create the account state
-            let state = AccountState {
-                balance: account.balance,
-                nonce: 0,
-                account_type,
+            let state = match account_type {
+                AccountType::User => AccountState::new_user(account.balance, 0),
+                AccountType::Contract => AccountState::new_contract(account.balance, Vec::new(), 0),
+                AccountType::System => AccountState::new_system(account.balance, 0),
+                AccountType::Validator => AccountState::new_validator(account.balance, account.balance, 0),
             };
-            
+
             account_states.push((address, state));
         }
-        
+
         account_states
     }
 }
@@ -188,12 +191,12 @@ impl GenesisConfig {
 pub fn generate_genesis<P: AsRef<Path>>(config_path: P) -> Result<(Block, Vec<(Hash, AccountState)>), String> {
     // Load the genesis configuration
     let config = GenesisConfig::load(config_path)?;
-    
+
     // Generate the genesis block
     let block = config.generate_block();
-    
+
     // Generate the initial account states
     let account_states = config.generate_account_states();
-    
+
     Ok((block, account_states))
 }

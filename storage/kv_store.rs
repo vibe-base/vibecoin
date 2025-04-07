@@ -136,11 +136,12 @@ pub struct RocksDBStore {
 
 impl RocksDBStore {
     /// Create a new RocksDBStore
-    pub fn new(path: &Path) -> Self {
+    pub fn new(path: &Path) -> Result<Self, KVStoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
-        let db = DB::open(&opts, path).expect("Failed to open RocksDB");
-        Self { db }
+        let db = DB::open(&opts, path)
+            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to open RocksDB: {}", e)))?;
+        Ok(Self { db })
     }
 
     /// Create a new RocksDBStore with custom options
