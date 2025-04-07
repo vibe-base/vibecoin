@@ -10,6 +10,7 @@ pub mod mining;
 pub mod types;
 pub mod config;
 pub mod engine;
+pub mod block_processor;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -26,6 +27,7 @@ use crate::consensus::engine::ConsensusEngine;
 /// Start the consensus engine
 pub async fn start_consensus<S: KVStore + 'static>(
     config: ConsensusConfig,
+    kv_store: Arc<S>,
     block_store: Arc<BlockStore<'static>>,
     tx_store: Arc<TxStore<'static>>,
     state_store: Arc<StateStore<'static>>,
@@ -34,20 +36,21 @@ pub async fn start_consensus<S: KVStore + 'static>(
     // Create the consensus engine
     let engine = ConsensusEngine::new(
         config,
+        kv_store,
         block_store,
         tx_store,
         state_store,
         network_tx,
     );
-    
+
     // Start the engine
     let engine_arc = Arc::new(engine);
     let engine_clone = engine_arc.clone();
-    
+
     tokio::spawn(async move {
         engine_clone.run().await;
     });
-    
+
     engine_arc
 }
 
@@ -55,7 +58,7 @@ pub async fn start_consensus<S: KVStore + 'static>(
 mod tests {
     use super::*;
     use crate::consensus::config::ConsensusConfig;
-    
+
     #[test]
     fn test_consensus_config() {
         let config = ConsensusConfig::default();
