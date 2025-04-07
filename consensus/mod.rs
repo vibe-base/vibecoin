@@ -25,14 +25,14 @@ use crate::consensus::config::ConsensusConfig;
 use crate::consensus::engine::ConsensusEngine;
 
 /// Start the consensus engine
-pub async fn start_consensus<S: KVStore + 'static>(
+pub async fn start_consensus<'a, S: KVStore + 'static>(
     config: ConsensusConfig,
     kv_store: Arc<S>,
-    block_store: Arc<BlockStore<'static>>,
-    tx_store: Arc<TxStore<'static>>,
-    state_store: Arc<StateStore<'static>>,
+    block_store: Arc<BlockStore<'a>>,
+    tx_store: Arc<TxStore<'a>>,
+    state_store: Arc<StateStore<'a>>,
     network_tx: mpsc::Sender<NetMessage>,
-) -> Arc<ConsensusEngine> {
+) -> Arc<ConsensusEngine<'a>> {
     // Create the consensus engine
     let engine = ConsensusEngine::new(
         config,

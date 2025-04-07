@@ -191,7 +191,7 @@ async fn main() {
     }
 
     let kv_store = Arc::new(RocksDBStore::new(db_path).expect("Failed to initialize RocksDB"));
-    let block_store = Arc::new(BlockStore::new(&kv_store));
+    let block_store = Arc::new(BlockStore::new(kv_store.as_ref()));
     let tx_store = Arc::new(TxStore::new(kv_store.as_ref()));
     let state_store = Arc::new(StateStore::new(kv_store.as_ref()));
 
