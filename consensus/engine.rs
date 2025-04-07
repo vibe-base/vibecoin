@@ -7,8 +7,7 @@ use log::{debug, error, info, warn};
 use crate::storage::block_store::{Block, BlockStore};
 use crate::storage::tx_store::{TransactionRecord, TxStore};
 use crate::storage::state_store::StateStore;
-use crate::storage::poh_store::PoHStore;
-use crate::storage::{BatchOperationManager, BatchOperationError, KVStore};
+use crate::storage::{BatchOperationManager, KVStore};
 use crate::network::types::message::NetMessage;
 use crate::consensus::config::ConsensusConfig;
 
@@ -29,15 +28,11 @@ fn create_genesis_block(config: &ConsensusConfig) -> Block {
         total_difficulty: config.initial_difficulty as u128,
     }
 }
-use crate::consensus::types::{ChainState, Target};
-use crate::consensus::validation::ForkChoice;
+use crate::consensus::types::ChainState;
 use crate::consensus::pow::difficulty::calculate_next_target;
-use crate::consensus::pow::miner::PoWMiner;
 use crate::consensus::poh::generator::PoHGenerator;
-use crate::consensus::poh::verifier::PoHVerifier;
-use crate::consensus::validation::block_validator::{BlockValidator, BlockValidationResult};
-use crate::consensus::validation::transaction_validator::{TransactionValidator, TransactionValidationResult};
-use crate::consensus::validation::fork_choice::{choose_fork, resolve_fork};
+use crate::consensus::validation::block_validator::BlockValidator;
+use crate::consensus::validation::transaction_validator::TransactionValidator;
 use crate::consensus::mining::mempool::Mempool;
 use crate::consensus::mining::block_producer::BlockProducer;
 use crate::consensus::block_processor::{BlockProcessor, BlockProcessingResult};
@@ -138,7 +133,7 @@ impl ConsensusEngine {
                 let genesis = create_genesis_block(&config);
 
                 // Store the genesis block
-                block_store.put_block(&genesis);
+                let _ = block_store.put_block(&genesis);
 
                 genesis
             }

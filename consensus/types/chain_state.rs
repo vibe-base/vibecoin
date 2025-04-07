@@ -2,7 +2,6 @@
 //!
 //! This module defines the chain state used by the consensus mechanism.
 
-use std::sync::Arc;
 use std::collections::HashMap;
 
 use crate::storage::block_store::{Block, Hash};

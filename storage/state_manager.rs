@@ -1,9 +1,8 @@
-use std::sync::{Arc, RwLock};
-use std::collections::HashMap;
-use log::{debug, error, info, warn};
+use std::sync::RwLock;
+use log::{error, info, warn};
 use dashmap::DashMap;
 
-use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
+use crate::storage::kv_store::{KVStore, WriteBatchOperation};
 use crate::storage::state::{AccountState, AccountType, StateRoot};
 use crate::storage::state_store::StateStoreError;
 use crate::storage::block_store::{Block, Hash};

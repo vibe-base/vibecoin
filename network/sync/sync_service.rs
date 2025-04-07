@@ -304,7 +304,7 @@ impl SyncService {
                             debug!("Received block from peer {}: height={}", peer_id, block.height);
 
                             // Store the block
-                            block_store.put_block(&block);
+                            let _ = block_store.put_block(&block);
 
                             // Update sync state
                             {
@@ -374,7 +374,7 @@ impl SyncService {
 
                             // Store the blocks
                             for block in &blocks {
-                                block_store.put_block(block);
+                                let _ = block_store.put_block(block);
                             }
 
                             // Update sync state

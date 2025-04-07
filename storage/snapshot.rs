@@ -9,18 +9,14 @@
 
 use std::path::{Path, PathBuf};
 use std::fs;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use log::{debug, error, info, warn};
+use log::{error, info};
 use thiserror::Error;
-use rand::random;
-use walkdir::WalkDir;
 
 use crate::storage::kv_store::{KVStore, KVStoreError, RocksDBStore};
-use crate::storage::block_store::{Block, Hash, BlockStore};
-use crate::storage::state::StateRoot;
+use crate::storage::block_store::{Hash, BlockStore};
 use crate::storage::state_store::StateStore;
 
 /// Error types for snapshot operations

@@ -1,6 +1,5 @@
 use std::fmt;
-use std::sync::Arc;
-use log::{debug, error, info, warn};
+use log::info;
 
 use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
 use crate::storage::block_store::Hash;

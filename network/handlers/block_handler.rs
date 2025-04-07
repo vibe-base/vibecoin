@@ -151,7 +151,7 @@ impl BlockHandler {
         }
 
         // Store the block
-        self.block_store.put_block(&block);
+        let _ = self.block_store.put_block(&block);
         info!("Block added to store: height={}", block.height);
 
         // Update mempool to remove included transactions

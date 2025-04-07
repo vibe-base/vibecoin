@@ -1,6 +1,6 @@
-use log::{debug, error, info, warn};
+use log::{error, warn};
 
-use crate::crypto::hash::{sha256, Hash};
+use crate::crypto::hash::sha256;
 use crate::storage::poh_store::{PoHEntry, PoHStore};
 
 /// Verifier for Proof of History sequence

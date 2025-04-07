@@ -1,6 +1,5 @@
 use serde::{Serialize, Deserialize};
-use std::sync::Arc;
-use log::{debug, error, info, warn};
+use log::{error, warn};
 use hex;
 
 use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};

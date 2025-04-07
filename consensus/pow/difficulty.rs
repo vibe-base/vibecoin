@@ -1,8 +1,8 @@
-use log::{debug, info, warn};
+use log::{info, warn};
 
 use crate::consensus::types::Target;
 use crate::consensus::config::ConsensusConfig;
-use crate::storage::block_store::{Block, BlockStore};
+use crate::storage::block_store::BlockStore;
 
 /// Calculate the next target difficulty
 pub fn calculate_next_target(

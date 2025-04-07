@@ -3,15 +3,14 @@
 //! This module provides functionality for synchronizing blockchain state
 //! between nodes, enabling fast catch-up and state verification.
 
-use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
-use log::{debug, error, info, warn};
+use log::{error, info};
 
 use crate::storage::kv_store::{KVStore, KVStoreError};
 use crate::storage::state::{AccountState, StateRoot, StateError};
 use crate::storage::state_store::{StateStore, StateStoreError};
-use crate::storage::block_store::{BlockStore, Hash, Block};
+use crate::storage::block_store::BlockStore;
 
 /// Error type for state synchronization operations
 #[derive(Debug, Error)]

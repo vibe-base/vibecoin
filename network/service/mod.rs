@@ -8,7 +8,7 @@ pub mod advanced_router;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use log::{debug, error, info};
+use log::{debug, error};
 
 use crate::network::NetworkConfig;
 use crate::network::peer::manager::PeerManager;

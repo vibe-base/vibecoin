@@ -4,12 +4,10 @@
 //! reducing storage requirements while maintaining blockchain integrity.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use thiserror::Error;
-use log::{debug, error, info, warn};
+use log::{error, info};
 
 use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
-use crate::storage::state::{AccountState, StateRoot};
 use crate::storage::state_store::{StateStore, StateStoreError};
 use crate::storage::block_store::{BlockStore, Hash};
 

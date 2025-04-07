@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time;
-use log::{debug, error, info, trace};
+use log::{error, info, trace};
 
-use crate::crypto::hash::{sha256, Hash};
+use crate::crypto::hash::sha256;
 use crate::storage::poh_store::{PoHEntry, PoHStore};
 use crate::consensus::config::ConsensusConfig;
 

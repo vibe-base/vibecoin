@@ -4,10 +4,10 @@
 //! including state inspection, transaction tracing, and block analysis.
 
 use std::sync::Arc;
-use log::{debug, error, info, warn};
+use log::error;
 
 use crate::storage::{
-    KVStore, BlockStore, StateStore, TxStore,
+    BlockStore, StateStore, TxStore,
     Block, AccountState, TransactionRecord,
 };
 

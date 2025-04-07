@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use log::{debug, error, info, warn};
+use log::{debug, error};
 
 use crate::network::types::message::NetMessage;
 

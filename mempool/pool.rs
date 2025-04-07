@@ -1,14 +1,11 @@
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashSet};
 use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::RwLock;
-use log::{debug, error, info, warn};
+use log::debug;
 
 use crate::mempool::types::{TransactionRecord, TransactionStatus, Address, Hash};
 use crate::storage::state_store::StateStore;
-use crate::storage::state::AccountState;
-use crate::crypto::signer::{verify_signature, VibeSignature};
-use crate::crypto::keys::VibePublicKey;
 
 /// Error types for mempool operations
 #[derive(Debug, Clone, PartialEq)]

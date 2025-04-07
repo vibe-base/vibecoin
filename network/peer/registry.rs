@@ -1,13 +1,10 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
-use log::{debug, error, info, warn};
+use log::{debug, warn};
 use dashmap::DashMap;
 
 use crate::network::types::node_info::NodeInfo;
-use crate::network::peer::state::{ConnectionState, PeerInfo};
+use crate::network::peer::state::ConnectionState;
 
 /// Metadata about a peer
 #[derive(Debug, Clone)]

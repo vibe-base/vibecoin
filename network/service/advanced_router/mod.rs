@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use std::collections::HashMap;
-use tokio::sync::{RwLock, mpsc, Mutex};
+use tokio::sync::{RwLock, Mutex};
 use log::{debug, error, info, warn};
 
 use crate::network::types::message::NetMessage;

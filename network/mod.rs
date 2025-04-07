@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use crate::network::handlers::message_handler::HandlerRegistry;
-use log::{debug, error, info, warn};
+use log::error;
 
 use crate::network::service::NetworkService;
 use crate::network::types::message::NetMessage;

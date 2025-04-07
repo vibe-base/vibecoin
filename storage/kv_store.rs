@@ -2,7 +2,6 @@ use rocksdb::{DB, Options, WriteBatch, IteratorMode};
 use std::path::Path;
 use std::io::Error;
 use std::fmt;
-use log::error;
 
 /// Custom error type for KVStore operations
 #[derive(Debug)]

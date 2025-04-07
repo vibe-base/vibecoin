@@ -1,9 +1,9 @@
 use std::sync::Arc;
-use log::{debug, error, info, warn};
-use sha2::{Sha256, Digest};
+use log::{error, warn};
+use sha2::Digest;
 
 use crate::storage::block_store::{Block, BlockStore};
-use crate::storage::tx_store::{TransactionRecord, TxStore};
+use crate::storage::tx_store::TxStore;
 use crate::storage::state_store::StateStore;
 use crate::consensus::types::Target;
 use crate::consensus::poh::verifier::PoHVerifier;

@@ -14,10 +14,10 @@ pub mod block_processor;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use log::{debug, error, info, warn};
+use log::info;
 
-use crate::storage::block_store::{Block, BlockStore};
-use crate::storage::tx_store::{TransactionRecord, TxStore};
+use crate::storage::block_store::BlockStore;
+use crate::storage::tx_store::TxStore;
 use crate::storage::state_store::StateStore;
 use crate::storage::kv_store::KVStore;
 use crate::network::types::message::NetMessage;

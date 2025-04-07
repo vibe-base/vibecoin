@@ -2,7 +2,7 @@ use std::sync::Arc;
 use log::{debug, error, info, warn};
 
 use crate::storage::{
-    BlockStore, TxStore, StateStore, BatchOperationManager, BatchOperationError,
+    BlockStore, TxStore, StateStore, BatchOperationManager,
     Block, TransactionRecord, AccountState, Hash,
 };
 use crate::consensus::validation::{BlockValidator, BlockValidationResult};

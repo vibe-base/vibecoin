@@ -3,15 +3,15 @@
 //! This module provides functionality for indexing blockchain state data,
 //! enabling efficient queries and analytics.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use thiserror::Error;
-use log::{debug, error, info, warn};
+use log::error;
 
 use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
-use crate::storage::state::{AccountState, StateRoot, StateError};
+use crate::storage::state::{AccountState, StateError};
 use crate::storage::state_store::{StateStore, StateStoreError};
-use crate::storage::block_store::{BlockStore, Hash, Block};
+use crate::storage::block_store::BlockStore;
 
 /// Error type for state indexing operations
 #[derive(Debug, Error)]

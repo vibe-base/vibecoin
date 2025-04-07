@@ -1,6 +1,5 @@
-use std::sync::Arc;
 use std::collections::HashMap;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 
 use crate::storage::block_store::{Block, BlockStore};
 use crate::consensus::types::ChainState;

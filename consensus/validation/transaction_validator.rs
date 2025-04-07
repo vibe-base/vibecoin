@@ -1,11 +1,9 @@
 use std::sync::Arc;
-use log::{debug, error, info, warn};
 
 use crate::storage::tx_store::{TransactionRecord, TxStore};
-use crate::storage::state::AccountState;
 use crate::storage::state_store::StateStore;
 use crate::crypto::keys::VibePublicKey;
-use crate::crypto::signer::{VibeSignature, verify_signature};
+use crate::crypto::signer::VibeSignature;
 
 /// Result of transaction validation
 #[derive(Debug, PartialEq)]

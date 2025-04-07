@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::Path;
-use log::{info, warn, error};
+use log::info;
 
 mod network;
 mod consensus;

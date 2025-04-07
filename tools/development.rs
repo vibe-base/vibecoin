@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use log::{debug, error, info, warn};
+use log::{error, info};
 
 use crate::storage::{
     KVStore, BlockStore, StateStore, TxStore,

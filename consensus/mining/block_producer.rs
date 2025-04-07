@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 
 use crate::storage::block_store::{Block, BlockStore};
 use crate::storage::tx_store::TxStore;
 use crate::storage::state_store::StateStore;
 use crate::consensus::types::{ChainState, BlockTemplate, Target};
 use crate::consensus::config::ConsensusConfig;
-use crate::consensus::pow::miner::{PoWMiner, MiningResult};
+use crate::consensus::pow::miner::PoWMiner;
 use crate::consensus::mining::mempool::Mempool;
 use crate::consensus::poh::generator::PoHGenerator;
 use crate::network::types::message::NetMessage;

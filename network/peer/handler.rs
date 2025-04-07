@@ -8,8 +8,8 @@ use log::{debug, error, info, warn};
 use crate::network::codec::frame::{FramedReader, FramedWriter};
 use crate::network::types::message::{NetMessage, DisconnectReason};
 use crate::network::types::node_info::NodeInfo;
-use crate::network::peer::state::{ConnectionState, PeerInfo};
-use crate::network::peer::registry::{PeerRegistry, PeerMetadata};
+use crate::network::peer::state::ConnectionState;
+use crate::network::peer::registry::PeerRegistry;
 use crate::network::peer::broadcaster::PeerBroadcaster;
 use crate::network::service::router::MessageRouter;
 

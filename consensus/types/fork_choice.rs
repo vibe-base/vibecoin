@@ -2,7 +2,7 @@
 //!
 //! This module defines the fork choice rule used by the consensus mechanism.
 
-use crate::storage::block_store::{Block, Hash};
+use crate::storage::block_store::Block;
 
 /// Fork choice rule
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

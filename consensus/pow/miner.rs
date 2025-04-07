@@ -1,13 +1,13 @@
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time;
-use log::{debug, error, info, trace, warn};
+use log::{error, info, trace, warn};
 use rayon::prelude::*;
 
-use crate::crypto::hash::{sha256, Hash};
+use crate::crypto::hash::sha256;
 use crate::storage::block_store::Block;
-use crate::consensus::types::{Target, BlockTemplate};
+use crate::consensus::types::BlockTemplate;
 use crate::consensus::config::ConsensusConfig;
 
 /// Result of mining

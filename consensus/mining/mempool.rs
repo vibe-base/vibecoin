@@ -1,11 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
-use log::{debug, error, info, warn};
+use std::sync::Mutex;
 
 use crate::storage::tx_store::TransactionRecord;
-use crate::consensus::validation::transaction_validator::{
-    TransactionValidator, TransactionValidationResult
-};
 
 /// Memory pool for pending transactions
 pub struct Mempool {

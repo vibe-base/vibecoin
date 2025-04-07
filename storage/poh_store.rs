@@ -24,11 +24,11 @@ impl<'a> PoHStore<'a> {
     pub fn append_entry(&self, entry: &PoHEntry) {
         let key = format!("poh:seq:{}", entry.sequence);
         let value = bincode::serialize(entry).unwrap();
-        self.store.put(key.as_bytes(), &value);
+        let _ = self.store.put(key.as_bytes(), &value);
 
         // Also index by hash for verification
         let hash_key = format!("poh:hash:{:x?}", entry.hash);
-        self.store.put(hash_key.as_bytes(), &value);
+        let _ = self.store.put(hash_key.as_bytes(), &value);
     }
 
     /// Get a PoH entry by sequence number

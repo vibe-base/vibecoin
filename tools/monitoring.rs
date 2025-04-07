@@ -5,11 +5,10 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use log::{debug, error, info, warn};
+use log::error;
 
 use crate::storage::{
-    KVStore, BlockStore, StateStore, TxStore,
-    Block, AccountState, TransactionRecord, DatabaseStats,
+    KVStore, BlockStore, StateStore, TxStore, DatabaseStats,
 };
 
 /// Monitoring tools for blockchain performance

@@ -1,7 +1,7 @@
 use std::sync::Arc;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 
-use crate::storage::block_store::{Block, BlockStore};
+use crate::storage::block_store::BlockStore;
 use crate::network::types::message::NetMessage;
 use crate::network::peer::broadcaster::PeerBroadcaster;
 use crate::network::peer::registry::PeerRegistry;

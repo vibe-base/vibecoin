@@ -2,10 +2,9 @@ use std::fs;
 use std::path::Path;
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use log::{info, warn, error};
+use log::{info, warn};
 
 use crate::storage::block_store::{Block, Hash};
-use crate::consensus::types::BlockHeader;
 use crate::storage::state::{AccountState, AccountType};
 use crate::crypto::hash::sha256;
 

@@ -5,14 +5,13 @@
 
 use std::collections::HashMap;
 use thiserror::Error;
-use log::{debug, error, info, warn};
+use log::error;
 
 use crate::storage::state::{
-    AccountState, AccountType, StateRoot, StateError, StateResult,
-    StateTransition, AccountChange, AccountChangeType, GlobalState,
+    AccountState, AccountType, StateError,
+    StateTransition, AccountChange, AccountChangeType,
     ChainParameters,
 };
-use crate::storage::block_store::Hash;
 
 /// Error type for state validation operations
 #[derive(Debug, Error)]

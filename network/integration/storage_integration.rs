@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use log::{debug, error, info, warn};
 
 use crate::storage::block_store::{Block, BlockStore};
@@ -98,7 +97,7 @@ impl StorageIntegration {
         }
 
         // Store the block
-        self.block_store.put_block(&block);
+        let _ = self.block_store.put_block(&block);
         info!("Block added to store: height={}", block.height);
 
         // Update peer reputation (good block)

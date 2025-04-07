@@ -3,8 +3,8 @@ use log::{debug, error, info, warn};
 
 use crate::network::types::message::NetMessage;
 use crate::network::service::router::MessageRouter;
-use crate::storage::block_store::{Block, BlockStore};
-use crate::storage::tx_store::{TransactionRecord, TxStore};
+use crate::storage::block_store::BlockStore;
+use crate::storage::tx_store::TxStore;
 use crate::mempool::{Mempool, MempoolError};
 use crate::consensus::engine::ConsensusEngine;
 use crate::network::peer::broadcaster::PeerBroadcaster;
@@ -175,7 +175,7 @@ impl SystemRouter {
                             }
                         } else {
                             // If we don't have a consensus engine, just store the block
-                            block_store_clone.put_block(&block_clone);
+                            let _ = block_store_clone.put_block(&block_clone);
 
                             // Broadcast the block to other peers
                             if let Some(broadcaster) = broadcaster_clone {

@@ -4,14 +4,13 @@
 //! allowing for transaction recovery after node restarts and efficient
 //! management of pending transactions.
 
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
 use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
-use crate::storage::tx_store::{TransactionRecord, TransactionStatus};
+use crate::storage::tx_store::TransactionRecord;
 use crate::storage::block_store::Hash;
 
 /// Error types for mempool storage operations
