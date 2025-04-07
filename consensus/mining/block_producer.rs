@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use log::{debug, error, info, warn};
 
 use crate::storage::block_store::{Block, BlockStore};
@@ -33,7 +33,7 @@ pub struct BlockProducer<'a> {
     miner: PoWMiner,
 
     /// PoH generator
-    poh_generator: Arc<PoHGenerator>,
+    poh_generator: Arc<Mutex<PoHGenerator>>,
 
     /// Network sender
     network_tx: mpsc::Sender<NetMessage>,
@@ -50,7 +50,7 @@ impl<'a> BlockProducer<'a> {
         tx_store: Arc<TxStore<'a>>,
         state_store: Arc<StateStore<'a>>,
         mempool: Arc<Mempool>,
-        poh_generator: Arc<PoHGenerator>,
+        poh_generator: Arc<Mutex<PoHGenerator>>,
         network_tx: mpsc::Sender<NetMessage>,
         config: ConsensusConfig,
     ) -> Self {
@@ -77,10 +77,8 @@ impl<'a> BlockProducer<'a> {
             self.config.max_transactions_per_block
         );
 
-        // Extract transaction IDs
-        let tx_ids = transactions.iter()
-            .map(|tx| tx.tx_id)
-            .collect();
+        // Keep the full transaction records
+        let selected_transactions = transactions.clone();
 
         // Calculate the state root
         let state_root = match self.state_store.calculate_state_root(
@@ -97,13 +95,16 @@ impl<'a> BlockProducer<'a> {
         // Create the block template
         BlockTemplate {
             height: self.chain_state.height + 1,
-            prev_hash: self.chain_state.latest_hash,
+            prev_hash: self.chain_state.tip_hash,
             timestamp: chrono::Utc::now().timestamp() as u64,
-            transactions: tx_ids.clone(),
+            transactions: selected_transactions,
             state_root,
-            tx_root: None, // Will be calculated when needed
-            target: self.chain_state.current_target.clone(),
-            poh_sequence_start: self.poh_generator.sequence(),
+            tx_root: [0u8; 32], // Will be calculated when needed
+            poh_seq: 0, // Will be set when we have access to the PoH generator
+            poh_hash: [0u8; 32], // Will be calculated during mining
+            target: Target::from_difficulty(self.chain_state.total_difficulty),
+            total_difficulty: self.chain_state.total_difficulty as u128,
+            miner: [0u8; 32], // Will be set by the miner
         }
     }
 

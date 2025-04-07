@@ -2,7 +2,8 @@ use std::sync::Arc;
 use log::{debug, error, info, warn};
 
 use crate::storage::tx_store::{TransactionRecord, TxStore};
-use crate::storage::state_store::{AccountState, StateStore};
+use crate::storage::state::AccountState;
+use crate::storage::state_store::StateStore;
 use crate::crypto::keys::VibePublicKey;
 use crate::crypto::signer::{VibeSignature, verify_signature};
 
@@ -11,10 +12,10 @@ use crate::crypto::signer::{VibeSignature, verify_signature};
 pub enum TransactionValidationResult {
     /// Transaction is valid
     Valid,
-    
+
     /// Transaction is invalid
     Invalid(String),
-    
+
     /// Transaction is already known
     AlreadyKnown,
 }
@@ -23,7 +24,7 @@ pub enum TransactionValidationResult {
 pub struct TransactionValidator<'a> {
     /// Transaction store
     tx_store: Arc<TxStore<'a>>,
-    
+
     /// State store
     state_store: Arc<StateStore<'a>>,
 }
@@ -39,7 +40,7 @@ impl<'a> TransactionValidator<'a> {
             state_store,
         }
     }
-    
+
     /// Validate a transaction
     pub fn validate_transaction(
         &self,
@@ -48,29 +49,29 @@ impl<'a> TransactionValidator<'a> {
         sender_pubkey: &VibePublicKey,
     ) -> TransactionValidationResult {
         // Check if the transaction is already known
-        if let Some(_) = self.tx_store.get_transaction(&tx.tx_id) {
+        if let Ok(Some(_)) = self.tx_store.get_transaction(&tx.tx_id) {
             return TransactionValidationResult::AlreadyKnown;
         }
-        
+
         // Verify the signature
         if !self.verify_signature(tx, signature, sender_pubkey) {
             return TransactionValidationResult::Invalid("Invalid signature".to_string());
         }
-        
+
         // Check sender balance
         if !self.check_balance(tx, &sender_pubkey.address()) {
             return TransactionValidationResult::Invalid("Insufficient balance".to_string());
         }
-        
+
         // Check nonce
         if !self.check_nonce(tx, &sender_pubkey.address()) {
             return TransactionValidationResult::Invalid("Invalid nonce".to_string());
         }
-        
+
         // All checks passed
         TransactionValidationResult::Valid
     }
-    
+
     /// Verify the transaction signature
     fn verify_signature(
         &self,
@@ -84,7 +85,7 @@ impl<'a> TransactionValidator<'a> {
         // For now, we'll just return true
         true
     }
-    
+
     /// Check if the sender has sufficient balance
     fn check_balance(&self, tx: &TransactionRecord, sender_address: &[u8; 32]) -> bool {
         // Get the sender's account state
@@ -95,12 +96,12 @@ impl<'a> TransactionValidator<'a> {
                 return false;
             }
         };
-        
+
         // Check if the sender has enough balance
         // The sender needs to cover both the value and the gas cost
         sender_state.balance >= tx.value + tx.gas_used
     }
-    
+
     /// Check if the transaction nonce is valid
     fn check_nonce(&self, tx: &TransactionRecord, sender_address: &[u8; 32]) -> bool {
         // Get the sender's account state
@@ -111,7 +112,7 @@ impl<'a> TransactionValidator<'a> {
                 return false;
             }
         };
-        
+
         // In a real implementation, we would check that the transaction nonce
         // matches the sender's current nonce
         // For now, we'll just return true
@@ -125,31 +126,31 @@ mod tests {
     use crate::storage::kv_store::RocksDBStore;
     use crate::crypto::keys::VibeKeypair;
     use tempfile::tempdir;
-    
+
     #[test]
     fn test_transaction_validation() {
         // Create a temporary directory for the database
         let temp_dir = tempdir().unwrap();
         let kv_store = RocksDBStore::new(temp_dir.path());
-        
+
         // Create the stores
         let tx_store = Arc::new(TxStore::new(&kv_store));
         let state_store = Arc::new(StateStore::new(&kv_store));
-        
+
         // Create a validator
         let validator = TransactionValidator::new(
             tx_store.clone(),
             state_store.clone(),
         );
-        
+
         // Create a keypair
         let keypair = VibeKeypair::generate();
         let pubkey = VibePublicKey::from(keypair.public);
-        
+
         // Create an account with some balance
         let address = keypair.address();
         state_store.create_account(&address, 1000);
-        
+
         // Create a transaction
         let tx = TransactionRecord {
             tx_id: [1u8; 32],
@@ -159,22 +160,22 @@ mod tests {
             gas_used: 10,
             block_height: 0, // Not yet included in a block
         };
-        
+
         // Create a dummy signature
         let signature = VibeSignature::new([0u8; 64]);
-        
+
         // Validate the transaction
         let result = validator.validate_transaction(&tx, &signature, &pubkey);
-        
+
         // The transaction should be valid
         assert_eq!(result, TransactionValidationResult::Valid);
-        
+
         // Store the transaction
         tx_store.put_transaction(&tx);
-        
+
         // Try to validate the same transaction again
         let result = validator.validate_transaction(&tx, &signature, &pubkey);
-        
+
         // The transaction should be already known
         assert_eq!(result, TransactionValidationResult::AlreadyKnown);
     }

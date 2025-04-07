@@ -58,13 +58,13 @@ impl<'a> BlockValidator<'a> {
     /// Validate a block
     pub fn validate_block(&self, block: &Block, target: &Target) -> BlockValidationResult {
         // Check if the block is already known
-        if let Some(_) = self.block_store.get_block_by_hash(&block.hash) {
+        if let Ok(Some(_)) = self.block_store.get_block_by_hash(&block.hash) {
             return BlockValidationResult::AlreadyKnown;
         }
 
         // Check if the parent block exists
         if block.height > 0 {
-            if let None = self.block_store.get_block_by_hash(&block.prev_hash) {
+            if let Ok(None) = self.block_store.get_block_by_hash(&block.prev_hash) {
                 return BlockValidationResult::UnknownParent;
             }
         }
@@ -116,7 +116,7 @@ impl<'a> BlockValidator<'a> {
     fn validate_transactions(&self, block: &Block) -> bool {
         // Check that all transactions exist and are valid
         for tx_hash in &block.transactions {
-            if let Some(tx) = self.tx_store.get_transaction(tx_hash) {
+            if let Ok(Some(tx)) = self.tx_store.get_transaction(tx_hash) {
                 // Verify transaction block height
                 if tx.block_height != block.height {
                     error!("Transaction {} has incorrect block height: expected {}, got {}",
@@ -135,8 +135,10 @@ impl<'a> BlockValidator<'a> {
         }
 
         // Validate the transaction root
-        let calculated_tx_root = self.calculate_tx_root(&block.transactions);
-        if calculated_tx_root != block.tx_root {
+        // Convert [u8; 32] array to Hash type
+        let tx_hashes: Vec<Hash> = block.transactions.iter().map(|tx| Hash::new(*tx)).collect();
+        let calculated_tx_root = self.calculate_tx_root(&tx_hashes);
+        if calculated_tx_root != Hash::new(block.tx_root) {
             error!("Transaction root mismatch: expected {}, calculated {}",
                    hex::encode(&block.tx_root), hex::encode(&calculated_tx_root));
             return false;
@@ -149,7 +151,7 @@ impl<'a> BlockValidator<'a> {
     fn calculate_tx_root(&self, tx_hashes: &[Hash]) -> Hash {
         if tx_hashes.is_empty() {
             // Empty transaction list has a special hash
-            return sha256(b"empty_tx_root");
+            return Hash::new(sha256(b"empty_tx_root"));
         }
 
         // Create leaf nodes from transaction hashes
@@ -177,7 +179,7 @@ impl<'a> BlockValidator<'a> {
                 let result = hasher.finalize();
                 let mut hash = [0u8; 32];
                 hash.copy_from_slice(&result);
-                next_level.push(hash);
+                next_level.push(Hash::new(hash));
             }
 
             // Move to the next level
@@ -256,11 +258,22 @@ impl<'a> BlockValidator<'a> {
             }
         };
 
+        // Create a PoH entry for verification
+        let poh_entry = crate::storage::poh_store::PoHEntry {
+            hash: block.poh_hash,
+            sequence: block.poh_seq,
+            timestamp: block.timestamp,
+        };
+
+        // Convert the sequence difference to bytes for the event data
+        let seq_diff = block.poh_seq - prev_block.poh_seq;
+        let event_data = seq_diff.to_be_bytes();
+
         // Verify the PoH sequence
-        if !self.poh_verifier.verify_sequence(
+        if !self.poh_verifier.verify_event(
+            &poh_entry,
             &prev_block.poh_hash,
-            &block.poh_hash,
-            block.poh_seq - prev_block.poh_seq
+            &event_data
         ) {
             error!("Invalid PoH sequence: prev_seq={}, curr_seq={}",
                    prev_block.poh_seq, block.poh_seq);

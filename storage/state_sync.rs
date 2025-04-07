@@ -285,7 +285,7 @@ impl<'a> StateSynchronizer<'a> {
         let state_store = self.state_store;
         let block_store = self.block_store;
         let config = self.config.clone();
-        let progress_mutex = Arc::new(self.progress.clone());
+        let progress_mutex = Arc::new(std::sync::Mutex::new(self.progress.lock().unwrap().clone()));
         let network_client_clone = Arc::clone(network_client);
 
         std::thread::spawn(move || {
@@ -389,7 +389,7 @@ impl<'a> StateSynchronizer<'a> {
             // Store accounts
             for (address, account) in &accounts {
                 state_store.put_account(address, account, target_height)?
-                    .map_err(|e| SyncError::StateStoreError(e))?;
+                    .map_err(|e| SyncError::StateError(e))?;
                 accounts_synced += 1;
             }
 
@@ -419,7 +419,7 @@ impl<'a> StateSynchronizer<'a> {
 
         // Store state root
         state_store.put_state_root(&state_root)?
-            .map_err(|e| SyncError::StateStoreError(e))?;
+            .map_err(|e| SyncError::StateError(e))?;
 
         Ok(())
     }
@@ -462,7 +462,7 @@ impl<'a> StateSynchronizer<'a> {
 
         // Store state root
         state_store.put_state_root(&state_root)?
-            .map_err(|e| SyncError::StateStoreError(e))?;
+            .map_err(|e| SyncError::StateError(e))?;
 
         // Update progress
         let mut progress_guard = progress.lock().unwrap();

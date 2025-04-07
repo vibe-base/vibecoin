@@ -3,7 +3,23 @@ use std::collections::HashMap;
 use log::{debug, error, info, warn};
 
 use crate::storage::block_store::{Block, BlockStore};
-use crate::consensus::types::{ChainState, ForkChoice};
+use crate::consensus::types::ChainState;
+
+/// Fork choice result
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForkChoice {
+    /// Accept the new block
+    Accept,
+
+    /// Reject the new block
+    Reject,
+
+    /// Replace the current chain with the new block's chain
+    Replace,
+
+    /// Fork detected, needs resolution
+    Fork,
+}
 
 /// Determine the canonical chain when there are competing forks
 pub fn choose_fork(
@@ -12,7 +28,7 @@ pub fn choose_fork(
     new_block: &Block,
 ) -> ForkChoice {
     // If the new block builds on the current chain, accept it
-    if new_block.prev_hash == current_state.latest_hash {
+    if new_block.prev_hash == current_state.tip_hash {
         return ForkChoice::Accept;
     }
 
@@ -24,7 +40,7 @@ pub fn choose_fork(
     // If the new block is at the same height, we have a fork
     if new_block.height == current_state.height {
         // Compare the total difficulty (cumulative work)
-        let current_tip = match block_store.get_block_by_hash(&current_state.latest_hash) {
+        let current_tip = match block_store.get_block_by_hash(&current_state.tip_hash) {
             Ok(Some(block)) => block,
             _ => {
                 error!("Failed to get current tip block");
@@ -44,7 +60,7 @@ pub fn choose_fork(
     // If the new block is at a higher height, we need to check if it's
     // part of a valid chain
     let mut current_block = new_block.clone();
-    let mut common_ancestor = None;
+    let mut common_ancestor: Option<Block> = None;
 
     // Traverse backwards until we find a common ancestor
     while current_block.height > current_state.height {
@@ -66,7 +82,7 @@ pub fn choose_fork(
     }
 
     // Now current_block is at the same height as current_state
-    let current_tip = match block_store.get_block_by_hash(&current_state.latest_hash) {
+    let current_tip = match block_store.get_block_by_hash(&current_state.tip_hash) {
         Ok(Some(block)) => block,
         Ok(None) => {
             error!("Current tip block not found");
@@ -78,7 +94,7 @@ pub fn choose_fork(
         }
     };
 
-    if current_block.hash == current_state.latest_hash {
+    if current_block.hash == current_state.tip_hash {
         // The new block is part of a longer chain, accept it
         return ForkChoice::Accept;
     } else {
@@ -225,13 +241,14 @@ mod tests {
         let block_store = Arc::new(BlockStore::new(&kv_store));
 
         // Create a chain state
-        let chain_state = ChainState {
-            height: 10,
-            current_target: Target::from_difficulty(100),
-            latest_hash: [10u8; 32],
-            latest_timestamp: 100,
-            latest_poh_sequence: 1000,
-        };
+        let chain_state = ChainState::new(
+            10, // height
+            [10u8; 32], // tip_hash
+            [0u8; 32], // state_root
+            1000, // total_difficulty
+            0, // finalized_height
+            [0u8; 32], // finalized_hash
+        );
 
         // Create a block that builds on the current chain
         let block1 = Block {

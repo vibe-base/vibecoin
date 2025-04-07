@@ -4,6 +4,7 @@ pub mod listener;
 pub mod dialer;
 pub mod router;
 pub mod system_router;
+pub mod advanced_router;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;

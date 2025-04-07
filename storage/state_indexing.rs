@@ -73,7 +73,7 @@ pub enum IndexType {
 }
 
 /// Index configuration
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IndexConfig {
     /// Index name
     pub name: String,
@@ -86,6 +86,17 @@ pub struct IndexConfig {
 
     /// Custom indexing function (for custom indexes)
     pub custom_index_fn: Option<Arc<dyn Fn(&AccountState) -> Vec<String> + Send + Sync>>,
+}
+
+impl std::fmt::Debug for IndexConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IndexConfig")
+            .field("name", &self.name)
+            .field("index_type", &self.index_type)
+            .field("historical", &self.historical)
+            .field("custom_index_fn", &if self.custom_index_fn.is_some() { "<function>" } else { "None" })
+            .finish()
+    }
 }
 
 /// Indexing status

@@ -20,7 +20,8 @@ use walkdir::WalkDir;
 
 use crate::storage::kv_store::{KVStore, KVStoreError, RocksDBStore};
 use crate::storage::block_store::{Block, Hash, BlockStore};
-use crate::storage::state_store::{StateStore, StateRoot};
+use crate::storage::state::StateRoot;
+use crate::storage::state_store::StateStore;
 
 /// Error types for snapshot operations
 #[derive(Error, Debug)]
@@ -501,13 +502,16 @@ impl<'a> SnapshotManager<'a> {
         let state_path = snapshot_path.join("state");
 
         // Get the RocksDB instance
-        let rocks_db = match self.store {
-            store if store.is::<RocksDBStore>() => {
-                // This is a safe downcast because we've checked the type
-                let rocks_store = unsafe { &*(store as *const dyn KVStore as *const RocksDBStore) };
+        let rocks_db = {
+            // Try to downcast to RocksDBStore using type name
+            let type_name = std::any::type_name_of_val(self.store);
+            if type_name.contains("RocksDBStore") {
+                // This is a safe downcast because we've checked the type name
+                let rocks_store = unsafe { &*(self.store as *const dyn KVStore as *const RocksDBStore) };
                 rocks_store.get_db()
-            },
-            _ => return Err(SnapshotError::Other("Only RocksDBStore is supported for snapshots".to_string())),
+            } else {
+                return Err(SnapshotError::Other("Only RocksDBStore is supported for snapshots".to_string()))
+            }
         };
 
         // Create a RocksDB checkpoint
@@ -540,7 +544,7 @@ impl<'a> SnapshotManager<'a> {
 
             if entry.file_type().is_file() {
                 total_size += entry.metadata()
-                    .map_err(|e| SnapshotError::IoError(e))?
+                    .map_err(|e| SnapshotError::IoError(e.into()))?
                     .len();
             }
         }

@@ -1,9 +1,8 @@
-use rocksdb::{DB, Options, WriteBatch, WriteOptions, ColumnFamily, IteratorMode};
+use rocksdb::{DB, Options, WriteBatch, IteratorMode};
 use std::path::Path;
-use std::sync::Arc;
-use std::io::{Error, ErrorKind};
+use std::io::Error;
 use std::fmt;
-use log::{debug, error, info, warn};
+use log::error;
 
 /// Custom error type for KVStore operations
 #[derive(Debug)]
@@ -79,6 +78,32 @@ pub enum WriteBatchOperation {
     Delete { key: Vec<u8> },
 }
 
+impl WriteBatchOperation {
+    /// Create a new batch operation
+    pub fn new() -> Vec<WriteBatchOperation> {
+        Vec::new()
+    }
+}
+
+/// Extension trait for Vec<WriteBatchOperation>
+pub trait WriteBatchOperationExt {
+    /// Add a put operation to the batch
+    fn put(&mut self, key: Vec<u8>, value: Vec<u8>);
+
+    /// Add a delete operation to the batch
+    fn delete(&mut self, key: Vec<u8>);
+}
+
+impl WriteBatchOperationExt for Vec<WriteBatchOperation> {
+    fn put(&mut self, key: Vec<u8>, value: Vec<u8>) {
+        self.push(WriteBatchOperation::Put { key, value });
+    }
+
+    fn delete(&mut self, key: Vec<u8>) {
+        self.push(WriteBatchOperation::Delete { key });
+    }
+}
+
 /// Key-value store trait
 pub trait KVStore: Send + Sync {
     /// Put a key-value pair
@@ -98,9 +123,6 @@ pub trait KVStore: Send + Sync {
 
     /// Iterate over key-value pairs with a prefix
     fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError>;
-
-    /// Flush any pending writes to disk
-    fn flush(&self) -> Result<(), KVStoreError>;
 }
 
 /// RocksDB implementation of KVStore
@@ -111,38 +133,29 @@ pub struct RocksDBStore {
 
 impl RocksDBStore {
     /// Create a new RocksDBStore
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, KVStoreError> {
+    pub fn new(path: &Path) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
-        opts.set_keep_log_file_num(10);
-        opts.set_max_total_wal_size(64 * 1024 * 1024); // 64MB
-        opts.set_write_buffer_size(64 * 1024 * 1024); // 64MB
-        opts.set_max_write_buffer_number(3);
-        opts.set_target_file_size_base(64 * 1024 * 1024); // 64MB
-        opts.set_level_zero_file_num_compaction_trigger(8);
-        opts.set_level_zero_slowdown_writes_trigger(17);
-        opts.set_level_zero_stop_writes_trigger(24);
-        opts.set_num_levels(7);
-        opts.set_max_bytes_for_level_base(512 * 1024 * 1024); // 512MB
-        opts.set_max_bytes_for_level_multiplier(10.0);
-
-        let db = DB::open(&opts, path)
-            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to open database: {}", e)))?;
-
-        Ok(Self { db })
+        let db = DB::open(&opts, path).expect("Failed to open RocksDB");
+        Self { db }
     }
 
     /// Create a new RocksDBStore with custom options
-    pub fn with_options<P: AsRef<Path>>(path: P, options: Options) -> Result<Self, KVStoreError> {
+    pub fn with_options(path: &Path, options: Options) -> Result<Self, KVStoreError> {
         let db = DB::open(&options, path)
-            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to open database: {}", e)))?;
-
+            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to open RocksDB: {}", e)))?;
         Ok(Self { db })
     }
 
     /// Get the underlying RocksDB instance
     pub fn get_db(&self) -> &DB {
         &self.db
+    }
+
+    /// Compact the database
+    pub fn compact(&self) -> Result<(), KVStoreError> {
+        self.db.compact_range(None::<&[u8]>, None::<&[u8]>);
+        Ok(())
     }
 }
 
@@ -195,103 +208,16 @@ impl KVStore for RocksDBStore {
             let (key, value) = item
                 .map_err(|e| KVStoreError::RocksDBError(format!("Failed to iterate: {}", e)))?;
 
-            // Check if the key starts with the prefix
+            // Check if key starts with prefix
             if key.starts_with(prefix) {
                 results.push((key.to_vec(), value.to_vec()));
             } else {
-                // We've moved past the prefix, stop iterating
+                // We've moved past the prefix
                 break;
             }
         }
 
         Ok(results)
-    }
-
-    fn flush(&self) -> Result<(), KVStoreError> {
-        let mut options = WriteOptions::default();
-        options.set_sync(true);
-        
-        // Create an empty batch to force a sync
-        let batch = WriteBatch::default();
-        self.db.write_opt(batch, &options)
-            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to flush: {}", e)))
-    }
-}
-
-/// In-memory implementation of KVStore for testing
-#[cfg(test)]
-pub struct MemoryStore {
-    /// In-memory storage
-    data: std::sync::RwLock<std::collections::HashMap<Vec<u8>, Vec<u8>>>,
-}
-
-#[cfg(test)]
-impl MemoryStore {
-    /// Create a new MemoryStore
-    pub fn new() -> Self {
-        Self {
-            data: std::sync::RwLock::new(std::collections::HashMap::new()),
-        }
-    }
-}
-
-#[cfg(test)]
-impl KVStore for MemoryStore {
-    fn put(&self, key: &[u8], value: &[u8]) -> Result<(), KVStoreError> {
-        let mut data = self.data.write().unwrap();
-        data.insert(key.to_vec(), value.to_vec());
-        Ok(())
-    }
-
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, KVStoreError> {
-        let data = self.data.read().unwrap();
-        Ok(data.get(key).cloned())
-    }
-
-    fn delete(&self, key: &[u8]) -> Result<(), KVStoreError> {
-        let mut data = self.data.write().unwrap();
-        data.remove(key);
-        Ok(())
-    }
-
-    fn exists(&self, key: &[u8]) -> Result<bool, KVStoreError> {
-        let data = self.data.read().unwrap();
-        Ok(data.contains_key(key))
-    }
-
-    fn write_batch(&self, operations: Vec<WriteBatchOperation>) -> Result<(), KVStoreError> {
-        let mut data = self.data.write().unwrap();
-        
-        for op in operations {
-            match op {
-                WriteBatchOperation::Put { key, value } => {
-                    data.insert(key, value);
-                },
-                WriteBatchOperation::Delete { key } => {
-                    data.remove(&key);
-                },
-            }
-        }
-        
-        Ok(())
-    }
-
-    fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError> {
-        let data = self.data.read().unwrap();
-        let mut results = Vec::new();
-        
-        for (key, value) in data.iter() {
-            if key.starts_with(prefix) {
-                results.push((key.clone(), value.clone()));
-            }
-        }
-        
-        Ok(results)
-    }
-
-    fn flush(&self) -> Result<(), KVStoreError> {
-        // No-op for in-memory store
-        Ok(())
     }
 }
 
@@ -301,81 +227,92 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_rocksdb_store() {
+    fn test_basic_operations() {
         let temp_dir = tempdir().unwrap();
-        let store = RocksDBStore::new(temp_dir.path()).unwrap();
+        let store = RocksDBStore::new(temp_dir.path());
 
         // Test put and get
-        store.put(b"key1", b"value1").unwrap();
-        let value = store.get(b"key1").unwrap().unwrap();
-        assert_eq!(value, b"value1");
+        let key = b"test_key";
+        let value = b"test_value";
+        store.put(key, value).unwrap();
+
+        let result = store.get(key).unwrap();
+        assert_eq!(result, Some(value.to_vec()));
 
         // Test exists
-        assert!(store.exists(b"key1").unwrap());
-        assert!(!store.exists(b"key2").unwrap());
+        assert!(store.exists(key).unwrap());
+        assert!(!store.exists(b"nonexistent_key").unwrap());
 
         // Test delete
-        store.delete(b"key1").unwrap();
-        assert!(!store.exists(b"key1").unwrap());
-
-        // Test batch operations
-        let operations = vec![
-            WriteBatchOperation::Put { key: b"key1".to_vec(), value: b"value1".to_vec() },
-            WriteBatchOperation::Put { key: b"key2".to_vec(), value: b"value2".to_vec() },
-            WriteBatchOperation::Delete { key: b"key1".to_vec() },
-        ];
-        store.write_batch(operations).unwrap();
-
-        assert!(!store.exists(b"key1").unwrap());
-        assert!(store.exists(b"key2").unwrap());
-
-        // Test prefix scan
-        store.put(b"prefix:key1", b"value1").unwrap();
-        store.put(b"prefix:key2", b"value2").unwrap();
-        store.put(b"other:key3", b"value3").unwrap();
-
-        let results = store.scan_prefix(b"prefix:").unwrap();
-        assert_eq!(results.len(), 2);
-        assert!(results.iter().any(|(k, v)| k == b"prefix:key1" && v == b"value1"));
-        assert!(results.iter().any(|(k, v)| k == b"prefix:key2" && v == b"value2"));
+        store.delete(key).unwrap();
+        let result = store.get(key).unwrap();
+        assert_eq!(result, None);
     }
 
     #[test]
-    fn test_memory_store() {
-        let store = MemoryStore::new();
+    fn test_batch_operations() {
+        let temp_dir = tempdir().unwrap();
+        let store = RocksDBStore::new(temp_dir.path());
 
-        // Test put and get
-        store.put(b"key1", b"value1").unwrap();
-        let value = store.get(b"key1").unwrap().unwrap();
-        assert_eq!(value, b"value1");
+        // Create a batch of operations
+        let mut batch = Vec::new();
+        batch.put(b"key1".to_vec(), b"value1".to_vec());
+        batch.put(b"key2".to_vec(), b"value2".to_vec());
+        batch.put(b"key3".to_vec(), b"value3".to_vec());
 
-        // Test exists
-        assert!(store.exists(b"key1").unwrap());
-        assert!(!store.exists(b"key2").unwrap());
+        // Write the batch
+        store.write_batch(batch).unwrap();
 
-        // Test delete
-        store.delete(b"key1").unwrap();
-        assert!(!store.exists(b"key1").unwrap());
+        // Verify the results
+        assert_eq!(store.get(b"key1").unwrap(), Some(b"value1".to_vec()));
+        assert_eq!(store.get(b"key2").unwrap(), Some(b"value2".to_vec()));
+        assert_eq!(store.get(b"key3").unwrap(), Some(b"value3".to_vec()));
 
-        // Test batch operations
-        let operations = vec![
-            WriteBatchOperation::Put { key: b"key1".to_vec(), value: b"value1".to_vec() },
-            WriteBatchOperation::Put { key: b"key2".to_vec(), value: b"value2".to_vec() },
-            WriteBatchOperation::Delete { key: b"key1".to_vec() },
-        ];
-        store.write_batch(operations).unwrap();
+        // Test batch with delete
+        let mut batch = Vec::new();
+        batch.delete(b"key1".to_vec());
+        batch.put(b"key2".to_vec(), b"updated".to_vec());
 
-        assert!(!store.exists(b"key1").unwrap());
-        assert!(store.exists(b"key2").unwrap());
+        // Write the batch
+        store.write_batch(batch).unwrap();
 
-        // Test prefix scan
-        store.put(b"prefix:key1", b"value1").unwrap();
-        store.put(b"prefix:key2", b"value2").unwrap();
-        store.put(b"other:key3", b"value3").unwrap();
+        // Verify the results
+        assert_eq!(store.get(b"key1").unwrap(), None);
+        assert_eq!(store.get(b"key2").unwrap(), Some(b"updated".to_vec()));
+    }
 
+    #[test]
+    fn test_scan_prefix() {
+        let temp_dir = tempdir().unwrap();
+        let store = RocksDBStore::new(temp_dir.path());
+
+        // Insert some keys with a common prefix
+        store.put(b"prefix:1", b"value1").unwrap();
+        store.put(b"prefix:2", b"value2").unwrap();
+        store.put(b"prefix:3", b"value3").unwrap();
+        store.put(b"other:1", b"other1").unwrap();
+
+        // Scan with prefix
         let results = store.scan_prefix(b"prefix:").unwrap();
-        assert_eq!(results.len(), 2);
-        assert!(results.iter().any(|(k, v)| k == b"prefix:key1" && v == b"value1"));
-        assert!(results.iter().any(|(k, v)| k == b"prefix:key2" && v == b"value2"));
+
+        // Should find 3 keys with the prefix
+        assert_eq!(results.len(), 3);
+
+        // Check the results
+        let mut found_keys = 0;
+        for (key, value) in results {
+            if key == b"prefix:1".to_vec() {
+                assert_eq!(value, b"value1".to_vec());
+                found_keys += 1;
+            } else if key == b"prefix:2".to_vec() {
+                assert_eq!(value, b"value2".to_vec());
+                found_keys += 1;
+            } else if key == b"prefix:3".to_vec() {
+                assert_eq!(value, b"value3".to_vec());
+                found_keys += 1;
+            }
+        }
+
+        assert_eq!(found_keys, 3);
     }
 }

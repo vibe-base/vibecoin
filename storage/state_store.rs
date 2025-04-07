@@ -1,14 +1,12 @@
-use serde::{Serialize, Deserialize};
-use std::sync::Arc;
 use std::collections::HashMap;
 use log::{debug, error, info, warn};
 use hex;
 
-use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
+use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation, WriteBatchOperationExt};
 use crate::storage::block_store::{Hash, Block};
-use crate::storage::tx_store::{TxStore, TransactionStatus, TransactionError, TransactionRecord};
+use crate::storage::tx_store::{TxStore, TransactionStatus, TransactionError};
 use crate::storage::trie::mpt::MerklePatriciaTrie;
-use crate::storage::state::{AccountState, AccountType, StateRoot, StateError};
+use crate::storage::state::{AccountState, AccountType, StateRoot, StateResult};
 
 // Note: AccountState, AccountType, and StateRoot are now imported from the state module
 
@@ -42,6 +40,14 @@ pub enum StateStoreError {
     /// Other error
     #[error("Other error: {0}")]
     Other(String),
+
+    /// Account already exists
+    #[error("Account already exists: {0}")]
+    AccountAlreadyExists(String),
+
+    /// Balance overflow
+    #[error("Balance overflow for account: {0}")]
+    BalanceOverflow(String),
 }
 
 // StateRoot is now imported from the state module
@@ -95,7 +101,7 @@ impl<'a> StateStore<'a> {
         let key = format!("state:account:{}", addr_str);
         match self.store.get(key.as_bytes()) {
             Ok(Some(bytes)) => {
-                match bincode::deserialize(&bytes) {
+                match bincode::deserialize::<AccountState>(&bytes) {
                     Ok(state) => {
                         // Add to cache
                         self.add_to_cache(addr_str, state.clone());
@@ -136,6 +142,32 @@ impl<'a> StateStore<'a> {
         Ok(())
     }
 
+    /// Update account state (alias for set_account_state for compatibility)
+    pub fn update_account(&self, address: &Hash, state: &AccountState) -> Result<(), StateStoreError> {
+        self.set_account_state(address, state)
+    }
+
+    /// Put an account at a specific block height
+    pub fn put_account(&self, address: &[u8], account: &AccountState, height: u64) -> Result<StateResult<()>, StateStoreError> {
+        let addr_str = hex::encode(address);
+        let key = format!("state:account:{}:{}", addr_str, height);
+
+        let value = bincode::serialize(account)
+            .map_err(|e| StateStoreError::SerializationError(e.to_string()))?;
+
+        // Update the store
+        self.store.put(key.as_bytes(), &value)?;
+
+        // Update the cache
+        self.add_to_cache(addr_str, account.clone());
+
+        // Invalidate the state root
+        let mut state_root = self.state_root.write().unwrap();
+        *state_root = None;
+
+        Ok(Ok(()))
+    }
+
     /// Add an account state to the cache
     fn add_to_cache(&self, address: String, state: AccountState) {
         // If cache is full, remove a random entry
@@ -147,6 +179,73 @@ impl<'a> StateStore<'a> {
 
         // Add to cache
         self.account_cache.insert(address, state);
+    }
+
+    /// Get an account at a specific block height
+    pub fn get_account(&self, address: &[u8], height: u64) -> Result<Option<AccountState>, StateStoreError> {
+        let addr_str = hex::encode(address);
+        let key = format!("state:account:{}:{}", addr_str, height);
+
+        match self.store.get(key.as_bytes())? {
+            Some(value) => {
+                match bincode::deserialize(&value) {
+                    Ok(state) => Ok(Some(state)),
+                    Err(e) => Err(StateStoreError::SerializationError(e.to_string())),
+                }
+            },
+            None => Ok(None),
+        }
+    }
+
+    /// Get the latest account state
+    pub fn get_latest_account(&self, address: &[u8]) -> Result<Option<AccountState>, StateStoreError> {
+        let addr_str = hex::encode(address);
+
+        // First check the cache
+        if let Some(state) = self.account_cache.get(&addr_str) {
+            return Ok(Some(state.clone()));
+        }
+
+        // If not in cache, scan the database for the latest version
+        let prefix = format!("state:account:{}:", addr_str);
+        let entries = self.store.scan_prefix(prefix.as_bytes())?;
+
+        if entries.is_empty() {
+            return Ok(None);
+        }
+
+        // Find the entry with the highest height
+        let mut latest_height = 0;
+        let mut latest_value = None;
+
+        for (key, value) in entries {
+            let key_str = String::from_utf8_lossy(&key);
+            let parts: Vec<&str> = key_str.split(':').collect();
+
+            if parts.len() >= 4 {
+                if let Ok(height) = parts[3].parse::<u64>() {
+                    if height > latest_height {
+                        latest_height = height;
+                        latest_value = Some(value);
+                    }
+                }
+            }
+        }
+
+        match latest_value {
+            Some(value) => {
+                match bincode::deserialize::<AccountState>(&value) {
+                    Ok(state) => {
+                        // Add to cache
+                        let state_clone = state.clone();
+                        self.add_to_cache(addr_str, state_clone);
+                        Ok(Some(state))
+                    },
+                    Err(e) => Err(StateStoreError::SerializationError(e.to_string())),
+                }
+            },
+            None => Ok(None),
+        }
     }
 
     /// Update account balance
@@ -188,14 +287,7 @@ impl<'a> StateStore<'a> {
         let mut recipient = self.get_account_state(to)
             .unwrap_or_else(|| {
                 // Create new account if it doesn't exist
-                AccountState {
-                    balance: 0,
-                    nonce: 0,
-                    code: None,
-                    storage: HashMap::new(),
-                    last_updated: block_height,
-                    account_type: AccountType::User,
-                }
+                AccountState::new_user(0, block_height)
             });
 
         // Update balances
@@ -224,8 +316,8 @@ impl<'a> StateStore<'a> {
         self.store.write_batch(batch)?;
 
         // Update the cache
-        self.add_to_cache(from_str, sender);
-        self.add_to_cache(to_str, recipient);
+        self.add_to_cache(from_str.clone(), sender);
+        self.add_to_cache(to_str.clone(), recipient);
 
         // Invalidate the state root
         let mut state_root = self.state_root.write().unwrap();
@@ -265,13 +357,12 @@ impl<'a> StateStore<'a> {
             return Ok(());
         }
 
-        let state = AccountState {
-            balance: initial_balance,
-            nonce: 0,
-            code: None,
-            storage: HashMap::new(),
-            last_updated: self.get_current_block_height().unwrap_or(0),
-            account_type,
+        let block_height = self.get_current_block_height().unwrap_or(0);
+        let state = match account_type {
+            AccountType::User => AccountState::new_user(initial_balance, block_height),
+            AccountType::Contract => AccountState::new_contract(initial_balance, Vec::new(), block_height),
+            AccountType::System => AccountState::new_system(initial_balance, block_height),
+            AccountType::Validator => AccountState::new_validator(initial_balance, 0, block_height),
         };
 
         self.set_account_state(address, &state)?;
@@ -449,6 +540,37 @@ impl<'a> StateStore<'a> {
         state_root.clone()
     }
 
+    /// Get the state root at a specific height
+    pub fn get_state_root_at_height(&self, height: u64) -> Result<Option<StateRoot>, StateStoreError> {
+        let key = format!("state:root:{}", height);
+
+        match self.store.get(key.as_bytes())? {
+            Some(value) => {
+                match bincode::deserialize(&value) {
+                    Ok(root) => Ok(Some(root)),
+                    Err(e) => Err(StateStoreError::SerializationError(e.to_string())),
+                }
+            },
+            None => Ok(None),
+        }
+    }
+
+    /// Put a state root
+    pub fn put_state_root(&self, root: &StateRoot) -> Result<StateResult<()>, StateStoreError> {
+        let key = format!("state:root:{}", root.block_height);
+
+        let value = bincode::serialize(root)
+            .map_err(|e| StateStoreError::SerializationError(e.to_string()))?;
+
+        self.store.put(key.as_bytes(), &value)?;
+
+        // Update the cached state root
+        let mut state_root = self.state_root.write().unwrap();
+        *state_root = Some(root.clone());
+
+        Ok(Ok(()))
+    }
+
     /// Set the state root
     pub fn set_state_root(&self, root: StateRoot) {
         let mut state_root = self.state_root.write().unwrap();
@@ -498,7 +620,7 @@ impl<'a> StateStore<'a> {
         }
 
         // Verify the proof
-        MerklePatriciaTrie::verify_proof(proof)
+        MerklePatriciaTrie::verify_proof(proof, expected_root)
     }
 
     /// Flush all pending writes to disk
@@ -608,14 +730,7 @@ impl<'a> StateStore<'a> {
                 Some(state) => state.clone(),
                 None => self.get_account_state(&tx.recipient).unwrap_or_else(|| {
                     // Create new account if it doesn't exist
-                    AccountState {
-                        balance: 0,
-                        nonce: 0,
-                        code: None,
-                        storage: HashMap::new(),
-                        last_updated: block.height,
-                        account_type: AccountType::User,
-                    }
+                    AccountState::new_user(0, block.height)
                 }),
             };
 

@@ -171,8 +171,10 @@ impl<'a> StatePruner<'a> {
         });
 
         // Get the current block height
-        let current_height = self.block_store.get_latest_height()
-            .map_err(|e| PruningError::Other(format!("Failed to get latest height: {}", e)))?;
+        let current_height = match self.block_store.get_latest_height() {
+            Some(height) => height,
+            None => return Err(PruningError::Other("Failed to get latest height".to_string())),
+        };
 
         // Determine which heights to keep
         let heights_to_keep = self.determine_heights_to_keep(current_height)?;
@@ -358,10 +360,10 @@ impl<'a> StatePruner<'a> {
         // This would typically call a method on the KV store to compact the database
         // For now, we'll just log that compaction would happen
         info!("Compacting database after pruning");
-        
+
         // If the KVStore implementation supports compaction, we would call it here
         // self.store.compact()?;
-        
+
         Ok(())
     }
 }
@@ -405,14 +407,14 @@ mod tests {
     fn setup_test_env() -> (tempfile::TempDir, RocksDBStore, BlockStore, StateStore) {
         // Create a temporary directory for the database
         let temp_dir = tempdir().unwrap();
-        
+
         // Create a RocksDB store
         let kv_store = RocksDBStore::new(temp_dir.path()).unwrap();
-        
+
         // Create block and state stores
         let block_store = BlockStore::new(&kv_store);
         let state_store = StateStore::new(&kv_store);
-        
+
         (temp_dir, kv_store, block_store, state_store)
     }
 
@@ -422,7 +424,7 @@ mod tests {
         assert_eq!(PruningMode::from_string("last_1000").unwrap(), PruningMode::KeepLastNBlocks(1000));
         assert_eq!(PruningMode::from_string("interval_100").unwrap(), PruningMode::KeepInterval(100));
         assert_eq!(PruningMode::from_string("specific").unwrap(), PruningMode::KeepSpecificHeights);
-        
+
         assert!(PruningMode::from_string("invalid").is_err());
         assert!(PruningMode::from_string("last_0").is_err());
         assert!(PruningMode::from_string("interval_0").is_err());
@@ -431,7 +433,7 @@ mod tests {
     #[test]
     fn test_determine_heights_to_keep() {
         let (_temp_dir, kv_store, block_store, state_store) = setup_test_env();
-        
+
         // Archive mode
         let config = PrunerConfig {
             mode: PruningMode::Archive,
@@ -443,7 +445,7 @@ mod tests {
         for i in 0..=10 {
             assert!(heights.contains(&i));
         }
-        
+
         // Keep last N blocks
         let config = PrunerConfig {
             mode: PruningMode::KeepLastNBlocks(5),
@@ -456,7 +458,7 @@ mod tests {
         for i in 6..=10 {
             assert!(heights.contains(&i));
         }
-        
+
         // Keep interval
         let config = PrunerConfig {
             mode: PruningMode::KeepInterval(3),
@@ -470,7 +472,7 @@ mod tests {
         assert!(heights.contains(&6));
         assert!(heights.contains(&9));
         assert!(heights.contains(&10)); // Latest always kept
-        
+
         // Keep specific heights
         let config = PrunerConfig {
             mode: PruningMode::KeepSpecificHeights,

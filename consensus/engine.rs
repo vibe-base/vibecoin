@@ -8,10 +8,29 @@ use crate::storage::block_store::{Block, BlockStore};
 use crate::storage::tx_store::{TransactionRecord, TxStore};
 use crate::storage::state_store::StateStore;
 use crate::storage::poh_store::PoHStore;
-use crate::storage::{BatchOperationManager, BatchOperationError};
+use crate::storage::{BatchOperationManager, BatchOperationError, KVStore};
 use crate::network::types::message::NetMessage;
 use crate::consensus::config::ConsensusConfig;
-use crate::consensus::types::{ChainState, Target, ForkChoice};
+
+/// Create a genesis block
+fn create_genesis_block(config: &ConsensusConfig) -> Block {
+    Block {
+        height: 0,
+        hash: [0u8; 32],
+        prev_hash: [0u8; 32],
+        timestamp: 0,
+        transactions: vec![],
+        state_root: [0u8; 32],
+        tx_root: [0u8; 32],
+        nonce: 0,
+        poh_seq: 0,
+        poh_hash: [0u8; 32],
+        difficulty: config.initial_difficulty,
+        total_difficulty: config.initial_difficulty as u128,
+    }
+}
+use crate::consensus::types::{ChainState, Target};
+use crate::consensus::validation::ForkChoice;
 use crate::consensus::pow::difficulty::calculate_next_target;
 use crate::consensus::pow::miner::PoWMiner;
 use crate::consensus::poh::generator::PoHGenerator;
@@ -41,13 +60,13 @@ pub struct ConsensusEngine<'a> {
     mempool: Arc<Mempool>,
 
     /// Block validator
-    block_validator: Arc<BlockValidator<'static>>,
+    block_validator: Arc<BlockValidator<'a>>,
 
     /// Transaction validator
-    tx_validator: Arc<TransactionValidator<'static>>,
+    tx_validator: Arc<TransactionValidator<'a>>,
 
     /// PoH generator
-    poh_generator: Arc<PoHGenerator>,
+    poh_generator: Arc<Mutex<PoHGenerator>>,
 
     /// Block producer
     block_producer: Arc<Mutex<BlockProducer<'a>>>,
@@ -75,7 +94,7 @@ impl<'a> ConsensusEngine<'a> {
     /// Create a new consensus engine
     pub fn new(
         config: ConsensusConfig,
-        kv_store: Arc<dyn KVStore>,
+        kv_store: Arc<dyn KVStore + 'a>,
         block_store: Arc<BlockStore<'a>>,
         tx_store: Arc<TxStore<'a>>,
         state_store: Arc<StateStore<'a>>,
@@ -101,21 +120,22 @@ impl<'a> ConsensusEngine<'a> {
         ));
 
         // Create the PoH generator
-        let poh_generator = Arc::new(PoHGenerator::new(&config));
+        let poh_generator = Arc::new(Mutex::new(PoHGenerator::new(&config)));
 
         // Get the latest block
         let latest_block = match block_store.get_latest_height() {
-            Some(height) => block_store.get_block_by_height(height).unwrap(),
+            Some(height) => match block_store.get_block_by_height(height) {
+                Ok(Some(block)) => block,
+                _ => {
+                    // Create a genesis block if we can't get the latest block
+                    let genesis = create_genesis_block(&config);
+                    block_store.put_block(&genesis).unwrap();
+                    genesis
+                }
+            },
             None => {
                 // Create a genesis block
-                let genesis = Block {
-                    height: 0,
-                    hash: [0u8; 32],
-                    prev_hash: [0u8; 32],
-                    timestamp: 0,
-                    transactions: vec![],
-                    state_root: [0u8; 32],
-                };
+                let genesis = create_genesis_block(&config);
 
                 // Store the genesis block
                 block_store.put_block(&genesis);
@@ -125,17 +145,22 @@ impl<'a> ConsensusEngine<'a> {
         };
 
         // Create the chain state
-        let chain_state = Arc::new(Mutex::new(ChainState {
-            height: latest_block.height,
-            current_target: Target::from_difficulty(config.initial_difficulty),
-            latest_hash: latest_block.hash,
-            latest_timestamp: latest_block.timestamp,
-            latest_poh_sequence: 0,
-        }));
+        let chain_state = Arc::new(Mutex::new(ChainState::new(
+            latest_block.height,
+            latest_block.hash,
+            crate::storage::state::StateRoot::new(
+                latest_block.state_root,
+                latest_block.height,
+                latest_block.timestamp
+            ),
+            latest_block.total_difficulty as u64,
+            0, // finalized_height
+            [0u8; 32], // finalized_hash
+        )));
 
         // Create the batch operation manager
         let batch_manager = Arc::new(BatchOperationManager::new(
-            Arc::new(kv_store.clone()),
+            kv_store.clone(),
             block_store.clone(),
             tx_store.clone(),
             state_store.clone(),
@@ -153,7 +178,8 @@ impl<'a> ConsensusEngine<'a> {
 
         // Create the block producer
         let block_producer = Arc::new(Mutex::new(BlockProducer::new(
-            chain_state.lock().unwrap().clone(),
+            // Get a clone of the chain state
+            chain_state.try_lock().expect("Failed to lock chain state").clone(),
             block_store.clone(),
             tx_store.clone(),
             state_store.clone(),
@@ -183,9 +209,12 @@ impl<'a> ConsensusEngine<'a> {
     }
 
     /// Run the consensus engine
-    pub async fn run(&self) {
+    pub async fn run(&mut self) {
         // Start the PoH generator
-        self.poh_generator.start().await;
+        {
+            let mut poh_gen = self.poh_generator.lock().await;
+            poh_gen.start().await;
+        } // Release the lock before proceeding
 
         // Register network handlers
         self.register_network_handlers().await;
@@ -194,13 +223,56 @@ impl<'a> ConsensusEngine<'a> {
         self.main_loop().await;
     }
 
+    /// Get a channel for sending blocks to the consensus engine
+    pub fn block_channel(&self) -> mpsc::Sender<Block> {
+        // Create a new channel
+        let (tx, rx) = mpsc::channel::<Block>(100);
+
+        // Clone the Arc pointers to avoid lifetime issues
+        let block_processor = self.block_processor.clone();
+        let chain_state = self.chain_state.clone();
+
+        // Spawn a task with 'static lifetime
+        tokio::spawn(async move {
+            let mut block_rx = rx;
+            while let Some(block) = block_rx.recv().await {
+                debug!("Received block from network: height={}", block.height);
+
+                // Get the chain state
+                let chain_state_guard = chain_state.lock().await;
+
+                // Process the block
+                let result = block_processor.process_block(&block, &chain_state_guard.current_target, &chain_state_guard).await;
+                match result {
+                    BlockProcessingResult::Success => {
+                        debug!("Block processed: Success");
+                    },
+                    BlockProcessingResult::AlreadyKnown => {
+                        debug!("Block processed: Already Known");
+                    },
+                    BlockProcessingResult::UnknownParent => {
+                        debug!("Block processed: Unknown Parent");
+                    },
+                    BlockProcessingResult::Invalid(reason) => {
+                        debug!("Block processed: Invalid - {}", reason);
+                    },
+                    BlockProcessingResult::Error(error) => {
+                        debug!("Block processed: Error - {}", error);
+                    },
+                }
+            }
+        });
+
+        tx
+    }
+
     /// Register handlers for network messages
-    async fn register_network_handlers(&self) {
+    async fn register_network_handlers(&mut self) {
         // TODO: Register handlers for network messages
     }
 
     /// Main consensus loop
-    async fn main_loop(&self) {
+    async fn main_loop(&mut self) {
         // Mining interval
         let mining_interval = self.config.target_block_time_duration();
         let mut mining_timer = time::interval(mining_interval);
@@ -275,6 +347,7 @@ impl<'a> ConsensusEngine<'a> {
         // Update the chain state
         let mut chain_state = self.chain_state.lock().await;
         chain_state.height = block.height;
+        chain_state.tip_hash = block.hash;
         chain_state.latest_hash = block.hash;
         chain_state.latest_timestamp = block.timestamp;
 

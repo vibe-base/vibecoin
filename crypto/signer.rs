@@ -1,4 +1,5 @@
-use ed25519_dalek::{Keypair, PublicKey, Signature, Signer, Verifier};
+use ed25519_dalek::{PublicKey, Signature, Signer, Verifier};
+use ed25519_dalek::ed25519::signature::Signature as SignatureTrait;
 use serde::{Serialize, Deserialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -9,7 +10,7 @@ use crate::crypto::keys::VibeKeypair;
 pub fn sign_message(keypair: &VibeKeypair, message: &[u8]) -> VibeSignature {
     let dalek_keypair = keypair.as_dalek_keypair();
     let signature = dalek_keypair.sign(message);
-    VibeSignature::new(*signature.as_bytes())
+    VibeSignature::new(signature.to_bytes())
 }
 
 /// Verify a signature against a message and public key
@@ -25,20 +26,49 @@ pub fn verify_signature(
 }
 
 /// A serializable signature wrapper
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct VibeSignature(pub [u8; 64]);
+
+// Manual implementation of Serialize for VibeSignature
+impl Serialize for VibeSignature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Serialize as a byte array
+        let bytes = self.0.to_vec();
+        bytes.serialize(serializer)
+    }
+}
+
+// Manual implementation of Deserialize for VibeSignature
+impl<'de> Deserialize<'de> for VibeSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let bytes = Vec::<u8>::deserialize(deserializer)?;
+        if bytes.len() != 64 {
+            return Err(serde::de::Error::custom("Invalid signature length"));
+        }
+
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&bytes);
+        Ok(VibeSignature(sig_bytes))
+    }
+}
 
 impl VibeSignature {
     /// Create a new signature from bytes
     pub fn new(bytes: [u8; 64]) -> Self {
         Self(bytes)
     }
-    
+
     /// Convert to ed25519_dalek Signature
     pub fn to_dalek_signature(&self) -> Result<Signature, ed25519_dalek::SignatureError> {
         Signature::from_bytes(&self.0)
     }
-    
+
     /// Get the signature as bytes
     pub fn as_bytes(&self) -> &[u8; 64] {
         &self.0
@@ -47,12 +77,12 @@ impl VibeSignature {
 
 impl TryFrom<&[u8]> for VibeSignature {
     type Error = ed25519_dalek::SignatureError;
-    
+
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 64 {
             return Err(ed25519_dalek::SignatureError::new());
         }
-        
+
         let mut sig_bytes = [0u8; 64];
         sig_bytes.copy_from_slice(bytes);
         Ok(Self(sig_bytes))
@@ -69,54 +99,54 @@ impl fmt::Debug for VibeSignature {
 mod tests {
     use super::*;
     use crate::crypto::keys::VibeKeypair;
-    
+
     #[test]
     fn test_sign_and_verify() {
         let keypair = VibeKeypair::generate();
         let message = b"This is a test message";
-        
+
         // Sign the message
         let signature = sign_message(&keypair, message);
-        
+
         // Verify the signature
         let result = verify_signature(message, &signature, &keypair.public);
         assert!(result);
     }
-    
+
     #[test]
     fn test_invalid_signature() {
         let keypair = VibeKeypair::generate();
         let message = b"This is a test message";
-        
+
         // Sign the message
         let signature = sign_message(&keypair, message);
-        
+
         // Try to verify with a different message
         let different_message = b"This is a different message";
         let result = verify_signature(different_message, &signature, &keypair.public);
         assert!(!result);
-        
+
         // Try to verify with a different keypair
         let different_keypair = VibeKeypair::generate();
         let result = verify_signature(message, &signature, &different_keypair.public);
         assert!(!result);
     }
-    
+
     #[test]
     fn test_signature_serialization() {
         let keypair = VibeKeypair::generate();
         let message = b"This is a test message";
-        
+
         // Sign the message
         let signature = sign_message(&keypair, message);
-        
+
         // Convert to bytes and back
         let sig_bytes = signature.as_bytes();
         let restored = VibeSignature::try_from(&sig_bytes[..]).unwrap();
-        
+
         // Should be the same signature
         assert_eq!(signature, restored);
-        
+
         // Should still verify
         let result = verify_signature(message, &restored, &keypair.public);
         assert!(result);

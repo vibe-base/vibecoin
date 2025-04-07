@@ -300,7 +300,8 @@ impl StateValidator {
         }
 
         // Validate delegation changes
-        let prev_delegations = prev_state.delegations.as_ref().unwrap_or(&HashMap::new());
+        let empty_map = HashMap::new();
+        let prev_delegations = prev_state.delegations.as_ref().unwrap_or(&empty_map);
         let new_delegations = match &new_state.delegations {
             Some(delegations) => delegations,
             None => {

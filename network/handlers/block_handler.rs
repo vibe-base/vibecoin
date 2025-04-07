@@ -14,51 +14,51 @@ use crate::mempool::Mempool;
 pub enum HandlerError {
     #[error("Block already exists")]
     DuplicateBlock,
-    
+
     #[error("Invalid block: {0}")]
     InvalidBlock(String),
-    
+
     #[error("Unknown parent block")]
     UnknownParent,
-    
+
     #[error("Storage error: {0}")]
     StorageError(String),
-    
+
     #[error("Network error: {0}")]
     NetworkError(String),
-    
+
     #[error("Consensus error: {0}")]
     ConsensusError(String),
 }
 
 /// Handler for block messages
-pub struct BlockHandler {
+pub struct BlockHandler<'a> {
     /// Block store
-    block_store: Arc<BlockStore<'static>>,
-    
+    block_store: Arc<BlockStore<'a>>,
+
     /// Consensus engine
-    consensus: Option<Arc<ConsensusEngine>>,
-    
+    consensus: Option<Arc<ConsensusEngine<'a>>>,
+
     /// Block validator
-    validator: Option<Arc<BlockValidator<'static>>>,
-    
+    validator: Option<Arc<BlockValidator<'a>>>,
+
     /// Mempool for transaction processing
     mempool: Option<Arc<Mempool>>,
-    
+
     /// Broadcaster for sending messages to peers
     broadcaster: Arc<PeerBroadcaster>,
-    
+
     /// Peer registry for tracking peers
     peer_registry: Arc<PeerRegistry>,
-    
+
     /// Whether to validate blocks before adding to store
     validate_blocks: bool,
 }
 
-impl BlockHandler {
+impl<'a> BlockHandler<'a> {
     /// Create a new block handler
     pub fn new(
-        block_store: Arc<BlockStore<'static>>,
+        block_store: Arc<BlockStore<'a>>,
         broadcaster: Arc<PeerBroadcaster>,
         peer_registry: Arc<PeerRegistry>,
     ) -> Self {
@@ -72,35 +72,35 @@ impl BlockHandler {
             validate_blocks: true,
         }
     }
-    
+
     /// Set the consensus engine
-    pub fn with_consensus(mut self, consensus: Arc<ConsensusEngine>) -> Self {
+    pub fn with_consensus(mut self, consensus: Arc<ConsensusEngine<'a>>) -> Self {
         self.consensus = Some(consensus);
         self
     }
-    
+
     /// Set the block validator
-    pub fn with_validator(mut self, validator: Arc<BlockValidator<'static>>) -> Self {
+    pub fn with_validator(mut self, validator: Arc<BlockValidator<'a>>) -> Self {
         self.validator = Some(validator);
         self
     }
-    
+
     /// Set the mempool
     pub fn with_mempool(mut self, mempool: Arc<Mempool>) -> Self {
         self.mempool = Some(mempool);
         self
     }
-    
+
     /// Set whether to validate blocks
     pub fn with_validation(mut self, validate: bool) -> Self {
         self.validate_blocks = validate;
         self
     }
-    
+
     /// Handle a block message
     pub async fn handle(&self, block: Block, source_peer: &str) -> Result<(), HandlerError> {
         info!("Handling block from peer {}: height={}", source_peer, block.height);
-        
+
         // If we have a consensus engine, let it handle the block
         if let Some(consensus) = &self.consensus {
             debug!("Forwarding block to consensus engine");
@@ -111,7 +111,7 @@ impl BlockHandler {
             }
             return Ok(());
         }
-        
+
         // Otherwise, validate and process the block ourselves
         if self.validate_blocks {
             if let Some(validator) = &self.validator {
@@ -129,45 +129,45 @@ impl BlockHandler {
                     },
                     BlockValidationResult::Invalid(reason) => {
                         warn!("Invalid block from peer {}: {}", source_peer, reason);
-                        
+
                         // Update peer reputation (bad block)
                         self.update_peer_reputation(source_peer, false).await;
-                        
+
                         return Err(HandlerError::InvalidBlock(reason));
                     }
                 }
             } else {
                 // Basic validation if no validator is available
-                if self.block_store.get_block_by_hash(&block.hash).is_some() {
+                if let Ok(Some(_)) = self.block_store.get_block_by_hash(&block.hash) {
                     debug!("Block already known: height={}", block.height);
                     return Err(HandlerError::DuplicateBlock);
                 }
-                
-                if block.height > 0 && self.block_store.get_block_by_hash(&block.prev_hash).is_none() {
+
+                if block.height > 0 && matches!(self.block_store.get_block_by_hash(&block.prev_hash), Ok(None) | Err(_)) {
                     warn!("Block has unknown parent: height={}", block.height);
                     return Err(HandlerError::UnknownParent);
                 }
             }
         }
-        
+
         // Store the block
         self.block_store.put_block(&block);
         info!("Block added to store: height={}", block.height);
-        
+
         // Update mempool to remove included transactions
         if let Some(mempool) = &self.mempool {
             self.update_mempool(&block, mempool).await;
         }
-        
+
         // Broadcast to other peers
         self.broadcast_block(block.clone(), source_peer).await?;
-        
+
         // Update peer reputation (good block)
         self.update_peer_reputation(source_peer, true).await;
-        
+
         Ok(())
     }
-    
+
     /// Broadcast a block to other peers
     async fn broadcast_block(&self, block: Block, source_peer: &str) -> Result<(), HandlerError> {
         match self.broadcaster.broadcast_except(
@@ -181,13 +181,13 @@ impl BlockHandler {
             }
         }
     }
-    
+
     /// Update mempool to remove transactions included in the block
     async fn update_mempool(&self, block: &Block, mempool: &Mempool) {
         // Mark transactions as included in a block
         mempool.mark_included(&block.transactions, block.height).await;
     }
-    
+
     /// Update peer reputation based on block validity
     async fn update_peer_reputation(&self, peer_id: &str, is_valid: bool) {
         // In a real implementation, we would update the peer's reputation score
@@ -205,7 +205,7 @@ mod tests {
     use super::*;
     use crate::storage::kv_store::RocksDBStore;
     use tempfile::tempdir;
-    
+
     #[tokio::test]
     async fn test_block_handler() {
         // Create dependencies
@@ -214,14 +214,14 @@ mod tests {
         let block_store = Arc::new(BlockStore::new(&kv_store));
         let broadcaster = Arc::new(PeerBroadcaster::new());
         let peer_registry = Arc::new(PeerRegistry::new());
-        
+
         // Create handler
         let handler = BlockHandler::new(
             block_store.clone(),
             broadcaster,
             peer_registry,
         ).with_validation(false); // Disable validation for testing
-        
+
         // Create a genesis block
         let genesis = Block {
             height: 0,
@@ -231,11 +231,11 @@ mod tests {
             transactions: vec![],
             state_root: [0u8; 32],
         };
-        
+
         // Handle the genesis block
         let result = handler.handle(genesis.clone(), "peer1").await;
         assert!(result.is_ok());
-        
+
         // Create a child block
         let block1 = Block {
             height: 1,
@@ -245,11 +245,11 @@ mod tests {
             transactions: vec![],
             state_root: [0u8; 32],
         };
-        
+
         // Handle the child block
         let result = handler.handle(block1.clone(), "peer1").await;
         assert!(result.is_ok());
-        
+
         // Try to handle the same block again
         let result = handler.handle(block1.clone(), "peer2").await;
         assert!(matches!(result, Err(HandlerError::DuplicateBlock)));

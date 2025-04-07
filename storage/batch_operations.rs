@@ -1,9 +1,10 @@
 use std::sync::Arc;
-use log::{debug, error, info, warn};
+use log::{error, info};
 
 use crate::storage::block_store::{Block, BlockStore, BlockStoreError};
 use crate::storage::tx_store::{TransactionRecord, TxStore, TxStoreError};
-use crate::storage::state_store::{AccountState, StateStore, StateStoreError, StateRoot};
+use crate::storage::state::AccountState;
+use crate::storage::state_store::{StateStore, StateStoreError};
 use crate::storage::kv_store::{KVStore, KVStoreError, WriteBatchOperation};
 use crate::storage::block_store::Hash;
 
@@ -34,7 +35,7 @@ pub enum BatchOperationError {
 /// Batch operations manager for atomic updates
 pub struct BatchOperationManager<'a> {
     /// KV store
-    store: Arc<dyn KVStore>,
+    store: Arc<dyn KVStore + 'a>,
     /// Block store
     block_store: Arc<BlockStore<'a>>,
     /// Transaction store
@@ -46,7 +47,7 @@ pub struct BatchOperationManager<'a> {
 impl<'a> BatchOperationManager<'a> {
     /// Create a new batch operation manager
     pub fn new(
-        store: Arc<dyn KVStore>,
+        store: Arc<dyn KVStore + 'a>,
         block_store: Arc<BlockStore<'a>>,
         tx_store: Arc<TxStore<'a>>,
         state_store: Arc<StateStore<'a>>,

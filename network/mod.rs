@@ -22,6 +22,7 @@ use log::{debug, error, info, warn};
 
 use crate::network::service::NetworkService;
 use crate::network::types::message::NetMessage;
+use crate::network::service::advanced_router::AdvancedMessageRouter;
 
 /// Configuration for the network module
 #[derive(Clone, Debug)]
@@ -73,12 +74,12 @@ pub async fn start_network(config: NetworkConfig) -> Arc<NetworkService> {
 }
 
 /// Start the enhanced network service with the given configuration
-pub async fn start_enhanced_network(
+pub async fn start_enhanced_network<'a>(
     config: NetworkConfig,
-    block_store: Option<Arc<crate::storage::block_store::BlockStore<'static>>>,
-    tx_store: Option<Arc<crate::storage::tx_store::TxStore<'static>>>,
+    block_store: Option<Arc<crate::storage::block_store::BlockStore<'a>>>,
+    tx_store: Option<Arc<crate::storage::tx_store::TxStore<'a>>>,
     mempool: Option<Arc<crate::mempool::Mempool>>,
-    consensus: Option<Arc<crate::consensus::engine::ConsensusEngine>>,
+    consensus: Option<Arc<crate::consensus::engine::ConsensusEngine<'a>>>,
 ) -> Arc<NetworkService> {
     // Create the basic network service
     let (message_tx, message_rx) = mpsc::channel(100);
@@ -97,7 +98,7 @@ pub async fn start_enhanced_network(
     let reputation = Arc::new(peer::reputation::ReputationSystem::new());
 
     // Create the advanced router
-    let router = Arc::new(service::advanced_router::AdvancedMessageRouter::new(
+    let router = Arc::new(AdvancedMessageRouter::new(
         peer_registry.clone(),
         broadcaster.clone(),
     ));

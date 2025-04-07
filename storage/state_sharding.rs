@@ -77,7 +77,7 @@ pub enum ShardingStrategy {
 }
 
 /// Shard configuration
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ShardConfig {
     /// Number of shards
     pub shard_count: u32,
@@ -93,6 +93,17 @@ pub struct ShardConfig {
 
     /// Custom shard mapping function
     pub custom_shard_fn: Option<Arc<dyn Fn(&[u8]) -> u32 + Send + Sync>>,
+}
+
+impl std::fmt::Debug for ShardConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShardConfig")
+            .field("shard_count", &self.shard_count)
+            .field("strategy", &self.strategy)
+            .field("base_dir", &self.base_dir)
+            .field("custom_shard_fn", &if self.custom_shard_fn.is_some() { "<function>" } else { "None" })
+            .finish()
+    }
 }
 
 impl Default for ShardConfig {
@@ -348,8 +359,10 @@ impl<'a> StateShardingManager<'a> {
         }
 
         // Initialize shard info
-        let current_height = self.block_store.get_latest_height()
-            .map_err(|e| ShardingError::Other(format!("Failed to get latest height: {}", e)))?;
+        let current_height = match self.block_store.get_latest_height() {
+            Some(height) => height,
+            None => return Err(ShardingError::Other("Failed to get latest height".to_string())),
+        };
 
         for (_, shard) in shards.iter() {
             shard.update_info(current_height)?;
@@ -449,8 +462,10 @@ impl<'a> StateShardingManager<'a> {
 
     /// Update all shard info
     pub fn update_all_shard_info(&self) -> ShardingResult<()> {
-        let current_height = self.block_store.get_latest_height()
-            .map_err(|e| ShardingError::Other(format!("Failed to get latest height: {}", e)))?;
+        let current_height = match self.block_store.get_latest_height() {
+            Some(height) => height,
+            None => return Err(ShardingError::Other("Failed to get latest height".to_string())),
+        };
 
         let shards = self.shards.read().unwrap();
 

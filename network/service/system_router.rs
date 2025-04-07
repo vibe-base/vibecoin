@@ -10,27 +10,27 @@ use crate::consensus::engine::ConsensusEngine;
 use crate::network::peer::broadcaster::PeerBroadcaster;
 
 /// System router that connects network messages to the appropriate subsystems
-pub struct SystemRouter {
+pub struct SystemRouter<'a> {
     /// Message router for network messages
     router: Arc<MessageRouter>,
-    
+
     /// Mempool for transaction processing
     mempool: Option<Arc<Mempool>>,
-    
+
     /// Block store for block storage
-    block_store: Option<Arc<BlockStore<'static>>>,
-    
+    block_store: Option<Arc<BlockStore<'a>>>,
+
     /// Transaction store for transaction storage
-    tx_store: Option<Arc<TxStore<'static>>>,
-    
+    tx_store: Option<Arc<TxStore<'a>>>,
+
     /// Consensus engine for block validation
-    consensus: Option<Arc<ConsensusEngine>>,
-    
+    consensus: Option<Arc<ConsensusEngine<'a>>>,
+
     /// Peer broadcaster for sending messages to peers
     broadcaster: Option<Arc<PeerBroadcaster>>,
 }
 
-impl SystemRouter {
+impl<'a> SystemRouter<'a> {
     /// Create a new system router
     pub fn new(router: Arc<MessageRouter>) -> Self {
         Self {
@@ -42,37 +42,37 @@ impl SystemRouter {
             broadcaster: None,
         }
     }
-    
+
     /// Set the mempool
     pub fn with_mempool(mut self, mempool: Arc<Mempool>) -> Self {
         self.mempool = Some(mempool);
         self
     }
-    
+
     /// Set the block store
-    pub fn with_block_store(mut self, block_store: Arc<BlockStore<'static>>) -> Self {
+    pub fn with_block_store(mut self, block_store: Arc<BlockStore<'a>>) -> Self {
         self.block_store = Some(block_store);
         self
     }
-    
+
     /// Set the transaction store
-    pub fn with_tx_store(mut self, tx_store: Arc<TxStore<'static>>) -> Self {
+    pub fn with_tx_store(mut self, tx_store: Arc<TxStore<'a>>) -> Self {
         self.tx_store = Some(tx_store);
         self
     }
-    
+
     /// Set the consensus engine
-    pub fn with_consensus(mut self, consensus: Arc<ConsensusEngine>) -> Self {
+    pub fn with_consensus(mut self, consensus: Arc<ConsensusEngine<'a>>) -> Self {
         self.consensus = Some(consensus);
         self
     }
-    
+
     /// Set the peer broadcaster
     pub fn with_broadcaster(mut self, broadcaster: Arc<PeerBroadcaster>) -> Self {
         self.broadcaster = Some(broadcaster);
         self
     }
-    
+
     /// Initialize the system router by registering handlers
     pub async fn initialize(&self) {
         // Register handlers for different message types
@@ -81,30 +81,44 @@ impl SystemRouter {
         self.register_block_request_handler().await;
         self.register_block_range_request_handler().await;
     }
-    
+
     /// Register handler for transaction messages
     async fn register_transaction_handler(&self) {
         let mempool = self.mempool.clone();
         let broadcaster = self.broadcaster.clone();
-        
+
         if let Some(mempool) = mempool {
             let router = self.router.clone();
-            
+
             router.register_handler("new_transaction", move |node_id, message| {
                 if let NetMessage::NewTransaction(tx) = message {
                     debug!("Received transaction from {}: {:?}", node_id, tx.tx_id);
-                    
+
                     // Process the transaction asynchronously
                     let mempool_clone = mempool.clone();
                     let broadcaster_clone = broadcaster.clone();
                     let tx_clone = tx.clone();
-                    
+
+                    // Convert from storage TransactionRecord to mempool TransactionRecord
+                    let mempool_tx = crate::mempool::types::TransactionRecord {
+                        tx_id: tx_clone.tx_id,
+                        sender: tx_clone.sender,
+                        recipient: tx_clone.recipient,
+                        value: tx_clone.value,
+                        gas_price: tx_clone.gas_price,
+                        gas_limit: tx_clone.gas_limit,
+                        nonce: tx_clone.nonce,
+                        timestamp: tx_clone.timestamp,
+                        signature: crate::crypto::signer::VibeSignature::new([0; 64]), // Placeholder
+                        data: tx_clone.data.clone(),
+                    };
+
                     tokio::spawn(async move {
                         // Try to insert the transaction into the mempool
-                        match mempool_clone.insert(tx_clone.clone()).await {
+                        match mempool_clone.insert(mempool_tx).await {
                             Ok(_) => {
                                 info!("Transaction added to mempool: {:?}", tx_clone.tx_id);
-                                
+
                                 // Broadcast the transaction to other peers
                                 if let Some(broadcaster) = broadcaster_clone {
                                     broadcaster.broadcast(NetMessage::NewTransaction(tx_clone)).await;
@@ -118,7 +132,7 @@ impl SystemRouter {
                             }
                         }
                     });
-                    
+
                     true
                 } else {
                     false
@@ -126,26 +140,26 @@ impl SystemRouter {
             }).await;
         }
     }
-    
+
     /// Register handler for block messages
     async fn register_block_handler(&self) {
         let block_store = self.block_store.clone();
         let consensus = self.consensus.clone();
         let broadcaster = self.broadcaster.clone();
-        
+
         if let Some(block_store) = block_store {
             let router = self.router.clone();
-            
+
             router.register_handler("new_block", move |node_id, message| {
                 if let NetMessage::NewBlock(block) = message {
                     info!("Received block from {}: height={}", node_id, block.height);
-                    
+
                     // Process the block asynchronously
                     let block_store_clone = block_store.clone();
                     let consensus_clone = consensus.clone();
                     let broadcaster_clone = broadcaster.clone();
                     let block_clone = block.clone();
-                    
+
                     tokio::spawn(async move {
                         // If we have a consensus engine, validate and process the block
                         if let Some(consensus) = consensus_clone {
@@ -158,14 +172,14 @@ impl SystemRouter {
                         } else {
                             // If we don't have a consensus engine, just store the block
                             block_store_clone.put_block(&block_clone);
-                            
+
                             // Broadcast the block to other peers
                             if let Some(broadcaster) = broadcaster_clone {
                                 broadcaster.broadcast(NetMessage::NewBlock(block_clone)).await;
                             }
                         }
                     });
-                    
+
                     true
                 } else {
                     false
@@ -173,34 +187,40 @@ impl SystemRouter {
             }).await;
         }
     }
-    
+
     /// Register handler for block request messages
     async fn register_block_request_handler(&self) {
         let block_store = self.block_store.clone();
         let broadcaster = self.broadcaster.clone();
-        
+
         if let Some(block_store) = block_store {
             let router = self.router.clone();
-            
+
             router.register_handler("request_block", move |node_id, message| {
                 if let NetMessage::RequestBlock(height) = message {
                     debug!("Received block request from {}: height={}", node_id, height);
-                    
+
                     // Process the request asynchronously
                     let block_store_clone = block_store.clone();
                     let broadcaster_clone = broadcaster.clone();
-                    
+
                     tokio::spawn(async move {
                         // Get the block from the store
-                        let block = block_store_clone.get_block_by_height(height);
-                        
+                        let block_result = block_store_clone.get_block_by_height(height);
+
                         // Send the response
                         if let Some(broadcaster) = broadcaster_clone {
-                            let response = NetMessage::ResponseBlock(block);
+                            let response = match block_result {
+                                Ok(block_option) => NetMessage::ResponseBlock(block_option),
+                                Err(e) => {
+                                    error!("Error retrieving block: {:?}", e);
+                                    NetMessage::ResponseBlock(None)
+                                }
+                            };
                             broadcaster.send_to_peer(&node_id, response).await;
                         }
                     });
-                    
+
                     true
                 } else {
                     false
@@ -208,39 +228,43 @@ impl SystemRouter {
             }).await;
         }
     }
-    
+
     /// Register handler for block range request messages
     async fn register_block_range_request_handler(&self) {
         let block_store = self.block_store.clone();
         let broadcaster = self.broadcaster.clone();
-        
+
         if let Some(block_store) = block_store {
             let router = self.router.clone();
-            
+
             router.register_handler("request_block_range", move |node_id, message| {
                 if let NetMessage::RequestBlockRange { start_height, end_height } = message {
                     debug!("Received block range request from {}: {}..{}", node_id, start_height, end_height);
-                    
+
                     // Process the request asynchronously
                     let block_store_clone = block_store.clone();
                     let broadcaster_clone = broadcaster.clone();
-                    
+
                     tokio::spawn(async move {
                         // Get the blocks from the store
                         let mut blocks = Vec::new();
                         for height in start_height..=end_height {
-                            if let Some(block) = block_store_clone.get_block_by_height(height) {
-                                blocks.push(block);
+                            match block_store_clone.get_block_by_height(height) {
+                                Ok(Some(block)) => blocks.push(block),
+                                Ok(None) => {}, // Block not found at this height
+                                Err(e) => {
+                                    error!("Error retrieving block at height {}: {:?}", height, e);
+                                }
                             }
                         }
-                        
+
                         // Send the response
                         if let Some(broadcaster) = broadcaster_clone {
                             let response = NetMessage::ResponseBlockRange(blocks);
                             broadcaster.send_to_peer(&node_id, response).await;
                         }
                     });
-                    
+
                     true
                 } else {
                     false
@@ -258,15 +282,15 @@ mod tests {
     use crate::storage::block_store::Block;
     use crate::network::service::router::MessageRouter;
     use std::sync::Arc;
-    
+
     #[tokio::test]
     async fn test_system_router_creation() {
         // Create a message router
         let router = Arc::new(MessageRouter::new());
-        
+
         // Create a system router
         let system_router = SystemRouter::new(router);
-        
+
         // The system router should be created successfully
         assert!(system_router.mempool.is_none());
         assert!(system_router.block_store.is_none());

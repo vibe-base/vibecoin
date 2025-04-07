@@ -97,7 +97,7 @@ impl<'a> BlockProcessor<'a> {
                         warn!("Fork detected at height {}", block.height);
 
                         // Get the current tip
-                        let current_tip = match self.block_store.get_block_by_hash(&chain_state.latest_hash) {
+                        let current_tip = match self.block_store.get_block_by_hash(&chain_state.tip_hash) {
                             Ok(Some(tip)) => tip,
                             Ok(None) => {
                                 error!("Current tip block not found");
@@ -126,6 +126,10 @@ impl<'a> BlockProcessor<'a> {
                                 return BlockProcessingResult::Error(format!("Failed to resolve fork: {}", e));
                             }
                         }
+                    },
+                    ForkChoice::Replace => {
+                        // Replace the current chain with this block
+                        debug!("Replacing current chain with this block");
                     }
                 }
             },
@@ -192,7 +196,7 @@ impl<'a> BlockProcessor<'a> {
                 Ok(None) => {
                     // Transaction not found, try to get it from the mempool
                     if let Some(mempool) = &self.mempool {
-                        if let Some(tx) = mempool.get_transaction(tx_hash) {
+                        if let Some(tx) = mempool.get_pending_transactions(100).iter().find(|tx| tx.tx_id == *tx_hash) {
                             // Create a confirmed transaction record
                             let mut tx_record = tx.clone();
                             tx_record.block_height = block.height;
@@ -225,25 +229,22 @@ impl<'a> BlockProcessor<'a> {
         for tx in transactions {
             // Get sender account
             let sender = match temp_state.get_account_state(&tx.sender) {
-                Ok(Some(account)) => account,
-                Ok(None) => {
+                Some(account) => account,
+                None => {
                     return Err(format!("Sender account not found: {}", hex::encode(&tx.sender)));
-                },
-                Err(e) => {
-                    return Err(format!("Failed to get sender account: {}", e));
                 }
             };
 
             // Get recipient account (or create if it doesn't exist)
             let recipient = match temp_state.get_account_state(&tx.recipient) {
-                Ok(Some(account)) => account,
-                Ok(None) => {
+                Some(account) => account,
+                None => {
                     // Create a new account for the recipient
-                    match temp_state.create_account(&tx.recipient, 0, crate::storage::AccountType::User) {
+                    match temp_state.create_account(&tx.recipient, 0, crate::storage::state::AccountType::User) {
                         Ok(()) => {
                             match temp_state.get_account_state(&tx.recipient) {
-                                Ok(Some(account)) => account,
-                                _ => {
+                                Some(account) => account,
+                                None => {
                                     return Err(format!("Failed to create recipient account: {}", hex::encode(&tx.recipient)));
                                 }
                             }
@@ -252,9 +253,6 @@ impl<'a> BlockProcessor<'a> {
                             return Err(format!("Failed to create recipient account: {}", e));
                         }
                     }
-                },
-                Err(e) => {
-                    return Err(format!("Failed to get recipient account: {}", e));
                 }
             };
 
@@ -267,24 +265,19 @@ impl<'a> BlockProcessor<'a> {
             let new_sender_balance = sender.balance - (tx.value + tx.gas_price * tx.gas_used);
             let new_sender_nonce = sender.nonce + 1;
 
-            let new_sender = AccountState {
-                balance: new_sender_balance,
-                nonce: new_sender_nonce,
-                account_type: sender.account_type,
-            };
+            let mut new_sender = sender.clone();
+            new_sender.balance = new_sender_balance;
+            new_sender.nonce = new_sender_nonce;
 
             // Update recipient account
             let new_recipient_balance = recipient.balance + tx.value;
 
-            let new_recipient = AccountState {
-                balance: new_recipient_balance,
-                nonce: recipient.nonce,
-                account_type: recipient.account_type,
-            };
+            let mut new_recipient = recipient.clone();
+            new_recipient.balance = new_recipient_balance;
 
             // Add state changes
-            state_changes.push((tx.sender, new_sender));
-            state_changes.push((tx.recipient, new_recipient));
+            state_changes.push((tx.sender, new_sender.clone()));
+            state_changes.push((tx.recipient, new_recipient.clone()));
 
             // Update the temporary state
             match temp_state.update_account(&tx.sender, &new_sender) {

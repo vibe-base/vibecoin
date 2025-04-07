@@ -11,6 +11,7 @@ use crate::consensus::types::{Target, BlockTemplate};
 use crate::consensus::config::ConsensusConfig;
 
 /// Result of mining
+#[derive(Clone)]
 pub struct MiningResult {
     /// The mined block
     pub block: Block,
@@ -163,7 +164,7 @@ impl PoWMiner {
                 hex::encode(&template.prev_hash),
                 template.timestamp,
                 hex::encode(&template.state_root),
-                template.tx_root.map_or_else(|| "none".to_string(), |r| hex::encode(&r)),
+                hex::encode(&template.tx_root),
                 nonce
             );
 
