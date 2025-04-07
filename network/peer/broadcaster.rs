@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use log::{debug, error, info, warn};
+use log::{debug, warn};
+
+use crate::network::peer::registry::PeerRegistry;
 
 use crate::network::types::message::NetMessage;
 
@@ -17,6 +19,11 @@ pub struct PeerBroadcaster {
 impl PeerBroadcaster {
     /// Create a new peer broadcaster
     pub fn new() -> Self {
+        Self::with_registry(None)
+    }
+
+    /// Create a new peer broadcaster with a registry
+    pub fn with_registry(_registry: Option<Arc<PeerRegistry>>) -> Self {
         Self {
             peer_senders: Arc::new(RwLock::new(HashMap::new())),
             max_retries: 3,
@@ -68,7 +75,7 @@ impl PeerBroadcaster {
                         success = true;
                         break;
                     }
-                    Err(e) if e.is_full() => {
+                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                         // Channel is full, wait a bit and retry
                         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                     }
@@ -103,7 +110,7 @@ impl PeerBroadcaster {
     }
 
     /// Send a message to a specific peer
-    pub async fn send_to_peer(&self, peer_id: &str, message: NetMessage) -> bool {
+    pub async fn send_to_peer(&self, peer_id: &str, message: NetMessage) -> Result<bool, String> {
         let senders = self.peer_senders.read().await;
 
         if let Some(sender) = senders.get(peer_id) {
@@ -116,7 +123,7 @@ impl PeerBroadcaster {
                         success = true;
                         break;
                     }
-                    Err(e) if e.is_full() => {
+                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                         // Channel is full, wait a bit and retry
                         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                     }
@@ -137,13 +144,13 @@ impl PeerBroadcaster {
                     broadcaster.unregister_peer(&peer_id).await;
                 });
 
-                return false;
+                return Ok(false);
             }
 
-            true
+            Ok(true)
         } else {
             warn!("Peer {} not found", peer_id);
-            false
+            Err(format!("Peer {} not found", peer_id))
         }
     }
 
@@ -194,7 +201,7 @@ impl PeerBroadcaster {
                         success = true;
                         break;
                     }
-                    Err(e) if e.is_full() => {
+                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                         // Channel is full, wait a bit and retry
                         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                     }
@@ -294,7 +301,8 @@ mod tests {
 
         // Send the message to the peer
         let result = broadcaster.send_to_peer("peer1", message.clone()).await;
-        assert!(result);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
 
         // Check that the message was received
         let received = rx.recv().await.unwrap();

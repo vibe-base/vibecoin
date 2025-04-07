@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
-use log::{debug, info, warn};
+use log::debug;
 
 use crate::network::peer::advanced_registry::PeerId;
 

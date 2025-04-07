@@ -99,6 +99,10 @@ pub enum TxStoreError {
     #[error("Transaction not found: {0}")]
     TransactionNotFound(String),
 
+    /// Invalid data format
+    #[error("Invalid data format: {0}")]
+    InvalidDataFormat(String),
+
     /// Other error
     #[error("Other error: {0}")]
     Other(String),

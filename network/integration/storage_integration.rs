@@ -160,21 +160,28 @@ impl StorageIntegration {
         let block = self.block_store.get_block_by_height(height);
 
         // Send the response
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             source_peer,
             NetMessage::ResponseBlock(block.ok().flatten()),
         ).await {
-            debug!("Block response sent to peer {}", source_peer);
+            Ok(true) => {
+                debug!("Block response sent to peer {}", source_peer);
 
-            // Update peer reputation (useful request)
-            if let Some(reputation) = &self.reputation {
-                reputation.update_score(source_peer, ReputationEvent::UsefulData);
+                // Update peer reputation (useful request)
+                if let Some(reputation) = &self.reputation {
+                    reputation.update_score(source_peer, ReputationEvent::UsefulData);
+                }
+
+                Ok(())
+            },
+            Ok(false) => {
+                error!("Failed to send block response to peer {}", source_peer);
+                Err(StorageError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending block response to peer {}: {}", source_peer, e);
+                Err(StorageError::NetworkError(format!("Send error: {}", e)))
             }
-
-            Ok(())
-        } else {
-            error!("Failed to send block response to peer {}", source_peer);
-            Err(StorageError::NetworkError(format!("Send failed")))
         }
     }
 
@@ -199,21 +206,28 @@ impl StorageIntegration {
         }
 
         // Send the response
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             source_peer,
             NetMessage::ResponseBlockRange(blocks.clone()),
         ).await {
-            debug!("Block range response sent to peer {}: {} blocks", source_peer, blocks.len());
+            Ok(true) => {
+                debug!("Block range response sent to peer {}: {} blocks", source_peer, blocks.len());
 
-            // Update peer reputation (useful request)
-            if let Some(reputation) = &self.reputation {
-                reputation.update_score(source_peer, ReputationEvent::UsefulData);
+                // Update peer reputation (useful request)
+                if let Some(reputation) = &self.reputation {
+                    reputation.update_score(source_peer, ReputationEvent::UsefulData);
+                }
+
+                Ok(())
+            },
+            Ok(false) => {
+                error!("Failed to send block range response to peer {}", source_peer);
+                Err(StorageError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending block range response to peer {}: {}", source_peer, e);
+                Err(StorageError::NetworkError(format!("Send error: {}", e)))
             }
-
-            Ok(())
-        } else {
-            error!("Failed to send block range response to peer {}", source_peer);
-            Err(StorageError::NetworkError(format!("Send failed")))
         }
     }
 
@@ -228,21 +242,28 @@ impl StorageIntegration {
         let block = self.block_store.get_block_by_height(latest_height);
 
         // Send the response
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             source_peer,
             NetMessage::ResponseBlock(block.ok().flatten()),
         ).await {
-            debug!("Latest block response sent to peer {}", source_peer);
+            Ok(true) => {
+                debug!("Latest block response sent to peer {}", source_peer);
 
-            // Update peer reputation (useful request)
-            if let Some(reputation) = &self.reputation {
-                reputation.update_score(source_peer, ReputationEvent::UsefulData);
+                // Update peer reputation (useful request)
+                if let Some(reputation) = &self.reputation {
+                    reputation.update_score(source_peer, ReputationEvent::UsefulData);
+                }
+
+                Ok(())
+            },
+            Ok(false) => {
+                error!("Failed to send latest block response to peer {}", source_peer);
+                Err(StorageError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending latest block response to peer {}: {}", source_peer, e);
+                Err(StorageError::NetworkError(format!("Send error: {}", e)))
             }
-
-            Ok(())
-        } else {
-            error!("Failed to send latest block response to peer {}", source_peer);
-            Err(StorageError::NetworkError(format!("Send failed")))
         }
     }
 
@@ -258,21 +279,28 @@ impl StorageIntegration {
         let block = self.block_store.get_block_by_height(latest_height);
 
         // Send the response
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             source_peer,
             NetMessage::ResponseBlock(block.ok().flatten()),
         ).await {
-            debug!("Chain state response sent to peer {}", source_peer);
+            Ok(true) => {
+                debug!("Chain state response sent to peer {}", source_peer);
 
-            // Update peer reputation (useful request)
-            if let Some(reputation) = &self.reputation {
-                reputation.update_score(source_peer, ReputationEvent::UsefulData);
+                // Update peer reputation (useful request)
+                if let Some(reputation) = &self.reputation {
+                    reputation.update_score(source_peer, ReputationEvent::UsefulData);
+                }
+
+                Ok(())
+            },
+            Ok(false) => {
+                error!("Failed to send chain state response to peer {}", source_peer);
+                Err(StorageError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending chain state response to peer {}: {}", source_peer, e);
+                Err(StorageError::NetworkError(format!("Send error: {}", e)))
             }
-
-            Ok(())
-        } else {
-            error!("Failed to send chain state response to peer {}", source_peer);
-            Err(StorageError::NetworkError(format!("Send failed")))
         }
     }
 
@@ -280,15 +308,22 @@ impl StorageIntegration {
     async fn request_block(&self, height: u64, peer_id: &str) -> Result<(), StorageError> {
         debug!("Requesting block from peer {}: height={}", peer_id, height);
 
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             peer_id,
             NetMessage::RequestBlock(height),
         ).await {
-            debug!("Block request sent to peer {}", peer_id);
-            Ok(())
-        } else {
-            error!("Failed to send block request to peer {}", peer_id);
-            Err(StorageError::NetworkError(format!("Send failed")))
+            Ok(true) => {
+                debug!("Block request sent to peer {}", peer_id);
+                Ok(())
+            },
+            Ok(false) => {
+                error!("Failed to send block request to peer {}", peer_id);
+                Err(StorageError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending block request to peer {}: {}", peer_id, e);
+                Err(StorageError::NetworkError(format!("Send error: {}", e)))
+            }
         }
     }
 
@@ -301,15 +336,22 @@ impl StorageIntegration {
             return Err(StorageError::InvalidRange(format!("Start height {} is greater than end height {}", start_height, end_height)));
         }
 
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             peer_id,
             NetMessage::RequestBlockRange { start_height, end_height },
         ).await {
-            debug!("Block range request sent to peer {}", peer_id);
-            Ok(())
-        } else {
-            error!("Failed to send block range request to peer {}", peer_id);
-            Err(StorageError::NetworkError(format!("Send failed")))
+            Ok(true) => {
+                debug!("Block range request sent to peer {}", peer_id);
+                Ok(())
+            },
+            Ok(false) => {
+                error!("Failed to send block range request to peer {}", peer_id);
+                Err(StorageError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending block range request to peer {}: {}", peer_id, e);
+                Err(StorageError::NetworkError(format!("Send error: {}", e)))
+            }
         }
     }
 }

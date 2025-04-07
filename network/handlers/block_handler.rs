@@ -32,15 +32,15 @@ pub enum HandlerError {
 }
 
 /// Handler for block messages
-pub struct BlockHandler<'a> {
+pub struct BlockHandler {
     /// Block store
-    block_store: Arc<BlockStore<'a>>,
+    block_store: Arc<BlockStore<'static>>,
 
     /// Consensus engine
-    consensus: Option<Arc<ConsensusEngine<'a>>>,
+    consensus: Option<Arc<ConsensusEngine>>,
 
     /// Block validator
-    validator: Option<Arc<BlockValidator<'a>>>,
+    validator: Option<Arc<BlockValidator<'static>>>,
 
     /// Mempool for transaction processing
     mempool: Option<Arc<Mempool>>,
@@ -55,10 +55,10 @@ pub struct BlockHandler<'a> {
     validate_blocks: bool,
 }
 
-impl<'a> BlockHandler<'a> {
+impl BlockHandler {
     /// Create a new block handler
     pub fn new(
-        block_store: Arc<BlockStore<'a>>,
+        block_store: Arc<BlockStore<'static>>,
         broadcaster: Arc<PeerBroadcaster>,
         peer_registry: Arc<PeerRegistry>,
     ) -> Self {
@@ -74,13 +74,13 @@ impl<'a> BlockHandler<'a> {
     }
 
     /// Set the consensus engine
-    pub fn with_consensus(mut self, consensus: Arc<ConsensusEngine<'a>>) -> Self {
+    pub fn with_consensus(mut self, consensus: Arc<ConsensusEngine>) -> Self {
         self.consensus = Some(consensus);
         self
     }
 
     /// Set the block validator
-    pub fn with_validator(mut self, validator: Arc<BlockValidator<'a>>) -> Self {
+    pub fn with_validator(mut self, validator: Arc<BlockValidator<'static>>) -> Self {
         self.validator = Some(validator);
         self
     }

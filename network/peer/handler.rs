@@ -89,10 +89,10 @@ pub struct PeerHandler {
     response_tx: Option<mpsc::Sender<(NetMessage, oneshot::Sender<NetMessage>)>>,
 
     /// Reader for the TCP stream
-    reader: Option<FramedReader<tokio::net::tcp::ReadHalf<'static>>>,
+    reader: Option<FramedReader<tokio::io::ReadHalf<TcpStream>>>,
 
     /// Writer for the TCP stream
-    writer: Option<FramedWriter<tokio::net::tcp::WriteHalf<'static>>>,
+    writer: Option<FramedWriter<tokio::io::WriteHalf<TcpStream>>>,
 }
 
 impl PeerHandler {
@@ -139,8 +139,11 @@ impl PeerHandler {
     pub async fn send(&mut self, message: NetMessage) -> Result<(), PeerHandlerError> {
         // Ensure we have a writer
         if self.writer.is_none() {
-            // Split the TCP stream if we haven't already
-            let (read_half, write_half) = tokio::io::split(self.stream.clone());
+            // We can't clone TcpStream, so we need to take ownership and split it
+            // This should only happen once during the handler's lifetime
+            let stream = std::mem::replace(&mut self.stream, TcpStream::from_std(std::net::TcpStream::connect("0.0.0.0:0").unwrap()).unwrap());
+            let (read_half, write_half) = tokio::io::split(stream);
+            // Convert to the generic AsyncRead/AsyncWrite types
             self.reader = Some(FramedReader::new(read_half));
             self.writer = Some(FramedWriter::new(write_half));
         }
@@ -164,8 +167,11 @@ impl PeerHandler {
     pub async fn recv(&mut self) -> Result<Option<NetMessage>, PeerHandlerError> {
         // Ensure we have a reader
         if self.reader.is_none() {
-            // Split the TCP stream if we haven't already
-            let (read_half, write_half) = tokio::io::split(self.stream.clone());
+            // We can't clone TcpStream, so we need to take ownership and split it
+            // This should only happen once during the handler's lifetime
+            let stream = std::mem::replace(&mut self.stream, TcpStream::from_std(std::net::TcpStream::connect("0.0.0.0:0").unwrap()).unwrap());
+            let (read_half, write_half) = tokio::io::split(stream);
+            // Convert to the generic AsyncRead/AsyncWrite types
             self.reader = Some(FramedReader::new(read_half));
             self.writer = Some(FramedWriter::new(write_half));
         }
@@ -173,52 +179,59 @@ impl PeerHandler {
         // Get the reader
         let reader = self.reader.as_mut().unwrap();
 
-        // Read a message with timeout
-        let result = timeout(
-            Duration::from_secs(MESSAGE_TIMEOUT),
-            reader.read_message::<NetMessage>()
-        ).await;
+        // Use a loop to handle automatic responses without recursion
+        loop {
+            // Read a message with timeout
+            let result = timeout(
+                Duration::from_secs(MESSAGE_TIMEOUT),
+                reader.read_message::<NetMessage>()
+            ).await;
 
-        match result {
-            Ok(Ok(Some(message))) => {
-                // Update last activity
-                self.last_activity = Instant::now();
-                self.peer_registry.update_peer_last_seen(&self.peer_id);
+            match result {
+                Ok(Ok(Some(message))) => {
+                    // Update last activity
+                    self.last_activity = Instant::now();
+                    self.peer_registry.update_peer_last_seen(&self.peer_id);
 
-                // Handle special messages
-                match &message {
-                    NetMessage::Disconnect(reason) => {
-                        info!("Peer {} disconnected: {:?}", self.peer_addr, reason);
-                        return Err(PeerHandlerError::PeerDisconnected(reason.clone()));
-                    },
-                    NetMessage::Ping(nonce) => {
-                        // Automatically respond to pings
-                        let _ = self.send(NetMessage::Pong(*nonce)).await;
+                    // Handle special messages
+                    match &message {
+                        NetMessage::Disconnect(reason) => {
+                            info!("Peer {} disconnected: {:?}", self.peer_addr, reason);
+                            return Err(PeerHandlerError::PeerDisconnected(reason.clone()));
+                        },
+                        NetMessage::Ping(nonce) => {
+                            // Automatically respond to pings
+                            let nonce_copy = *nonce;
 
-                        // Continue reading to get the next message
-                        return self.recv().await;
-                    },
-                    NetMessage::Pong(_) => {
-                        // Ignore pongs in recv() - they're handled by the main loop
-                        return self.recv().await;
-                    },
-                    _ => {
-                        debug!("Received message from peer {}: {:?}", self.peer_addr, message);
-                        return Ok(Some(message));
+                            // We need to break out of the loop to avoid borrowing issues
+                            // Send the pong response
+                            let _ = self.send(NetMessage::Pong(nonce_copy)).await;
+
+                            // Return the ping message so the caller knows we received something
+                            return Ok(Some(message));
+                        },
+                        NetMessage::Pong(_) => {
+                            // Ignore pongs in recv() - they're handled by the main loop
+                            continue;
+                        },
+                        _ => {
+                            debug!("Received message from peer {}: {:?}", self.peer_addr, message);
+                            return Ok(Some(message));
+                        }
                     }
+                },
+                Ok(Ok(None)) => {
+                    info!("Peer {} closed the connection", self.peer_addr);
+                    return Ok(None);
+                },
+                Ok(Err(e)) => {
+                    error!("Error reading message from peer {}: {:?}", self.peer_addr, e);
+                    return Err(PeerHandlerError::SerializationError(e));
+                },
+                Err(_) => {
+                    warn!("Timeout waiting for message from peer {}", self.peer_addr);
+                    return Err(PeerHandlerError::Timeout);
                 }
-            },
-            Ok(Ok(None)) => {
-                info!("Peer {} closed the connection", self.peer_addr);
-                return Ok(None);
-            },
-            Ok(Err(e)) => {
-                error!("Error reading message from peer {}: {:?}", self.peer_addr, e);
-                return Err(PeerHandlerError::SerializationError(e));
-            },
-            Err(_) => {
-                warn!("Timeout waiting for message from peer {}", self.peer_addr);
-                return Err(PeerHandlerError::Timeout);
             }
         }
     }
@@ -230,7 +243,7 @@ impl PeerHandler {
 
         // Wait for a response that matches the request
         match request {
-            NetMessage::RequestBlock(height) => {
+            NetMessage::RequestBlock(_height) => {
                 // Wait for ResponseBlock
                 loop {
                     match self.recv().await? {

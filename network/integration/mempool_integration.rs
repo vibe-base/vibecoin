@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use log::{debug, error, info, warn};
 
 use crate::mempool::{Mempool, MempoolError};
@@ -135,10 +135,10 @@ impl MempoolIntegration {
     }
 
     /// Start listening for new transactions from the mempool
-    pub async fn start_mempool_listener(&self) -> Result<(), String> {
+    pub async fn start_mempool_listener(&mut self) -> Result<(), String> {
         // Check if we have a subscription channel
-        let rx = match &self.tx_subscription {
-            Some(rx) => rx.clone(),
+        match &self.tx_subscription {
+            Some(_) => {},
             None => return Err("No transaction subscription channel".to_string()),
         };
 
@@ -160,33 +160,60 @@ impl MempoolIntegration {
         let broadcaster = self.broadcaster.clone();
         let running = self.running.clone();
 
-        // Spawn a task to listen for new transactions
-        tokio::spawn(async move {
-            info!("Starting mempool listener");
+        // Create a new channel for the task
+        let (tx, mut rx) = mpsc::channel(100);
 
-            while {
-                let is_running = *running.read().await;
-                is_running
-            } {
-                match rx.recv().await {
-                    Some(tx) => {
-                        debug!("New transaction from mempool: {:?}", tx.tx_id);
+        // Take ownership of the subscription channel
+        let tx_subscription = self.tx_subscription.take();
 
-                        // Broadcast to all peers
-                        broadcaster.broadcast(NetMessage::NewTransaction(tx)).await;
-                        debug!("Transaction broadcast to peers");
-                    },
-                    None => {
-                        warn!("Transaction subscription channel closed");
+        // If we have a subscription, start a task to forward messages
+        if let Some(mut tx_subscription) = tx_subscription {
+            // Start a task to forward messages from the subscription to our new channel
+            tokio::spawn(async move {
+                while let Some(tx_record) = tx_subscription.recv().await {
+                    if tx.send(tx_record).await.is_err() {
                         break;
                     }
                 }
-            }
+            });
+        }
 
-            info!("Mempool listener stopped");
+        // Spawn a task to listen for new transactions
+        tokio::spawn(async move {
+            Self::handle_mempool_events(&mut rx, broadcaster, running).await;
         });
 
         Ok(())
+    }
+
+    /// Handle mempool events in a separate task
+    async fn handle_mempool_events(
+        rx: &mut mpsc::Receiver<TransactionRecord>,
+        broadcaster: Arc<PeerBroadcaster>,
+        running: Arc<RwLock<bool>>,
+    ) {
+        info!("Starting mempool listener");
+
+        while {
+            let is_running = *running.read().await;
+            is_running
+        } {
+            match rx.recv().await {
+                Some(tx) => {
+                    debug!("New transaction from mempool: {:?}", tx.tx_id);
+
+                    // Broadcast to all peers
+                    broadcaster.broadcast(NetMessage::NewTransaction(tx)).await;
+                    debug!("Transaction broadcast to peers");
+                },
+                None => {
+                    warn!("Transaction subscription channel closed");
+                    break;
+                }
+            }
+        }
+
+        info!("Mempool listener stopped");
     }
 
     /// Stop the mempool listener

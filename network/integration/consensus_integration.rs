@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use log::{debug, error, info, warn};
 
 use crate::storage::block_store::{Block, BlockStore};
@@ -30,17 +30,17 @@ pub enum ConsensusError {
 }
 
 /// Integration between the network module and the consensus module
-pub struct ConsensusIntegration<'a> {
+pub struct ConsensusIntegration {
     /// Lifetime parameter to ensure proper lifetime management
     _lifetime: std::marker::PhantomData<&'static ()>,
     /// Consensus engine
-    consensus: Arc<ConsensusEngine<'a>>,
+    consensus: Arc<ConsensusEngine>,
 
     /// Block store
-    block_store: Arc<BlockStore<'a>>,
+    block_store: Arc<BlockStore<'static>>,
 
     /// Block validator
-    validator: Option<Arc<BlockValidator<'a>>>,
+    validator: Option<Arc<BlockValidator<'static>>>,
 
     /// Broadcaster for sending messages to peers
     broadcaster: Arc<PeerBroadcaster>,
@@ -58,11 +58,11 @@ pub struct ConsensusIntegration<'a> {
     running: Arc<tokio::sync::RwLock<bool>>,
 }
 
-impl<'a> ConsensusIntegration<'a> {
+impl ConsensusIntegration {
     /// Create a new consensus integration
     pub fn new(
-        consensus: Arc<ConsensusEngine<'a>>,
-        block_store: Arc<BlockStore<'a>>,
+        consensus: Arc<ConsensusEngine>,
+        block_store: Arc<BlockStore<'static>>,
         broadcaster: Arc<PeerBroadcaster>,
         peer_registry: Arc<PeerRegistry>,
     ) -> Self {
@@ -80,7 +80,7 @@ impl<'a> ConsensusIntegration<'a> {
     }
 
     /// Set the block validator
-    pub fn with_validator(mut self, validator: Arc<BlockValidator<'a>>) -> Self {
+    pub fn with_validator(mut self, validator: Arc<BlockValidator<'static>>) -> Self {
         self.validator = Some(validator);
         self
     }
@@ -156,10 +156,10 @@ impl<'a> ConsensusIntegration<'a> {
     }
 
     /// Start listening for new blocks from the consensus engine
-    pub async fn start_consensus_listener(&self) -> Result<(), String> {
+    pub async fn start_consensus_listener(&mut self) -> Result<(), String> {
         // Check if we have a subscription channel
-        let rx = match &self.block_subscription {
-            Some(rx) => rx.clone(),
+        let _rx = match &self.block_subscription {
+            Some(_) => {},
             None => return Err("No block subscription channel".to_string()),
         };
 
@@ -181,33 +181,60 @@ impl<'a> ConsensusIntegration<'a> {
         let broadcaster = self.broadcaster.clone();
         let running = self.running.clone();
 
-        // Spawn a task to listen for new blocks
-        tokio::spawn(async move {
-            info!("Starting consensus listener");
+        // Create a new channel for the task
+        let (tx, mut rx) = mpsc::channel(100);
 
-            while {
-                let is_running = *running.read().await;
-                is_running
-            } {
-                match rx.recv().await {
-                    Some(block) => {
-                        debug!("New block from consensus: height={}", block.height);
+        // Take ownership of the subscription channel
+        let block_subscription = self.block_subscription.take();
 
-                        // Broadcast to all peers
-                        broadcaster.broadcast(NetMessage::NewBlock(block)).await;
-                        debug!("Block broadcast to peers");
-                    },
-                    None => {
-                        warn!("Block subscription channel closed");
+        // If we have a subscription, start a task to forward messages
+        if let Some(mut block_subscription) = block_subscription {
+            // Start a task to forward messages from the subscription to our new channel
+            tokio::spawn(async move {
+                while let Some(block) = block_subscription.recv().await {
+                    if tx.send(block).await.is_err() {
                         break;
                     }
                 }
-            }
+            });
+        }
 
-            info!("Consensus listener stopped");
+        // Spawn a task to listen for new blocks
+        tokio::spawn(async move {
+            Self::handle_consensus_events(&mut rx, broadcaster, running).await;
         });
 
         Ok(())
+    }
+
+    /// Handle consensus events in a separate task
+    async fn handle_consensus_events(
+        rx: &mut mpsc::Receiver<Block>,
+        broadcaster: Arc<PeerBroadcaster>,
+        running: Arc<RwLock<bool>>,
+    ) {
+        info!("Starting consensus listener");
+
+        while {
+            let is_running = *running.read().await;
+            is_running
+        } {
+            match rx.recv().await {
+                Some(block) => {
+                    debug!("New block from consensus: height={}", block.height);
+
+                    // Broadcast to all peers
+                    broadcaster.broadcast(NetMessage::NewBlock(block)).await;
+                    debug!("Block broadcast to peers");
+                },
+                None => {
+                    warn!("Block subscription channel closed");
+                    break;
+                }
+            }
+        }
+
+        info!("Consensus listener stopped");
     }
 
     /// Stop the consensus listener

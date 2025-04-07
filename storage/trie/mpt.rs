@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use sha2::Digest;
+
 use array_init::array_init;
 use serde::{Serialize, Deserialize};
 
@@ -112,7 +112,7 @@ impl MerklePatriciaTrie {
                 self.get_at(child, nibbles, depth + prefix_len)
             },
 
-            Node::Branch { children, value } => {
+            Node::Branch { children, value: _ } => {
                 let nibble = nibbles[depth] as usize;
 
                 if let Some(child) = &children[nibble] {
@@ -147,7 +147,7 @@ impl MerklePatriciaTrie {
                     // Replace the value in the leaf node
                     Node::leaf(key, value_clone)
                 },
-                Node::Extension { key, child } => {
+                Node::Extension { key: _, child: _ } => {
                     // Convert to a branch with a value
                     let children = array_init(|_| None);
                     Node::branch(children, Some(value_clone))
@@ -329,13 +329,13 @@ impl MerklePatriciaTrie {
                     }
                 },
 
-                Node::Branch { mut children, value: mut branch_value } => {
+                Node::Branch { mut children, value: mut _branch_value } => {
                     // Handle branch node
                     let nibble = nibbles[depth] as usize;
 
                     if depth + 1 == nibbles.len() {
                         // This is the last nibble, update the branch's value
-                        branch_value = Some(value_clone.clone());
+                        _branch_value = Some(value_clone.clone());
                     } else {
                         // Continue with the child node
                         let child = children[nibble].take().unwrap_or(Box::new(Node::empty()));
@@ -633,7 +633,7 @@ impl MerklePatriciaTrie {
                 self.get_proof_at(child, nibbles, depth + prefix_len, items)
             },
 
-            Node::Branch { children, value } => {
+            Node::Branch { children, value: _ } => {
                 let nibble = nibbles[depth] as usize;
 
                 if let Some(child) = &children[nibble] {
@@ -706,7 +706,7 @@ impl MerklePatriciaTrie {
                     };
                 },
 
-                Node::Extension { key, child } => {
+                Node::Extension { key, child: _ } => {
                     // Check if the key prefix matches
                     let (decoded_key, _) = compact_decode(key);
                     let prefix_len = decoded_key.len();
@@ -747,7 +747,7 @@ impl MerklePatriciaTrie {
 
                     let nibble = nibbles[current_depth] as usize;
 
-                    if let Some(child) = &children[nibble] {
+                    if let Some(_child) = &children[nibble] {
                         // Move to the next node
                         current_depth += 1;
                         if i + 1 < proof.items.len() {

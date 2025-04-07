@@ -392,13 +392,15 @@ impl<'a> SnapshotManager<'a> {
             SnapshotError::Other("Block store is required to get chain state".to_string())
         })?;
 
-        let state_store = self.state_store.ok_or_else(|| {
+        let _state_store = self.state_store.ok_or_else(|| {
             SnapshotError::Other("State store is required to get chain state".to_string())
         })?;
 
         // Get the latest block height
-        let height = block_store.get_latest_height()
-            .map_err(|e| SnapshotError::Other(format!("Failed to get latest height: {}", e)))?;
+        let height = match block_store.get_latest_height() {
+            Some(height) => height,
+            None => return Err(SnapshotError::Other("Failed to get latest height".to_string())),
+        };
 
         // Get the block at that height
         let block = block_store.get_block_by_height(height)
@@ -471,13 +473,16 @@ impl<'a> SnapshotManager<'a> {
         let blocks_path = snapshot_path.join("blocks");
 
         // Get the RocksDB instance
-        let rocks_db = match self.store {
-            store if store.is::<RocksDBStore>() => {
-                // This is a safe downcast because we've checked the type
-                let rocks_store = unsafe { &*(store as *const dyn KVStore as *const RocksDBStore) };
+        let rocks_db = {
+            // Try to downcast to RocksDBStore using type name
+            let type_name = std::any::type_name_of_val(self.store);
+            if type_name.contains("RocksDBStore") {
+                // This is a safe downcast because we've checked the type name
+                let rocks_store = unsafe { &*(self.store as *const dyn KVStore as *const RocksDBStore) };
                 rocks_store.get_db()
-            },
-            _ => return Err(SnapshotError::Other("Only RocksDBStore is supported for snapshots".to_string())),
+            } else {
+                return Err(SnapshotError::Other("Only RocksDBStore is supported for snapshots".to_string()))
+            }
         };
 
         // Create a RocksDB checkpoint
@@ -764,7 +769,7 @@ impl<'a> SnapshotManager<'a> {
     /// Open a database from a snapshot
     pub fn open_snapshot_db(&self, snapshot_id: &str, snapshot_type: SnapshotType) -> Result<RocksDBStore, SnapshotError> {
         // Load the snapshot metadata
-        let metadata = self.load_metadata(snapshot_id)?;
+        let _metadata = self.load_metadata(snapshot_id)?;
 
         // Get the snapshot path
         let snapshot_path = self.get_snapshot_path(snapshot_id);

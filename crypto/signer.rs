@@ -1,5 +1,5 @@
 use ed25519_dalek::{PublicKey, Signature, Signer, Verifier};
-use ed25519_dalek::ed25519::signature::Signature as SignatureTrait;
+
 use serde::{Serialize, Deserialize};
 use std::convert::TryFrom;
 use std::fmt;

@@ -17,7 +17,8 @@ pub mod sync;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
+use crate::network::handlers::message_handler::HandlerRegistry;
 use log::{debug, error, info, warn};
 
 use crate::network::service::NetworkService;
@@ -57,7 +58,7 @@ impl Default for NetworkConfig {
 
 /// Start the network service with the given configuration
 pub async fn start_network(config: NetworkConfig) -> Arc<NetworkService> {
-    let (message_tx, message_rx) = mpsc::channel(100);
+    let (_message_tx, message_rx) = mpsc::channel(100);
 
     let service = NetworkService::new(config, message_rx);
     let service_arc = Arc::new(service);
@@ -67,22 +68,24 @@ pub async fn start_network(config: NetworkConfig) -> Arc<NetworkService> {
 
     // Start the network service in a separate task
     tokio::spawn(async move {
-        service_clone.run().await;
+        // Create a mutable reference to the service
+        let mut service = service_clone.as_ref().clone();
+        service.run().await;
     });
 
     service_arc
 }
 
 /// Start the enhanced network service with the given configuration
-pub async fn start_enhanced_network<'a>(
+pub async fn start_enhanced_network(
     config: NetworkConfig,
-    block_store: Option<Arc<crate::storage::block_store::BlockStore<'a>>>,
-    tx_store: Option<Arc<crate::storage::tx_store::TxStore<'a>>>,
+    block_store: Option<Arc<crate::storage::block_store::BlockStore<'static>>>,
+    tx_store: Option<Arc<crate::storage::tx_store::TxStore<'static>>>,
     mempool: Option<Arc<crate::mempool::Mempool>>,
-    consensus: Option<Arc<crate::consensus::engine::ConsensusEngine<'a>>>,
+    consensus: Option<Arc<crate::consensus::engine::ConsensusEngine>>,
 ) -> Arc<NetworkService> {
     // Create the basic network service
-    let (message_tx, message_rx) = mpsc::channel(100);
+    let (_message_tx, message_rx) = mpsc::channel(100);
     let service = NetworkService::new(config, message_rx);
     let service_arc = Arc::new(service);
 
@@ -97,8 +100,12 @@ pub async fn start_enhanced_network<'a>(
     // Create the reputation system
     let reputation = Arc::new(peer::reputation::ReputationSystem::new());
 
+    // Create the handler registry
+    let handler_registry = Arc::new(RwLock::new(HandlerRegistry::new()));
+
     // Create the advanced router
     let router = Arc::new(AdvancedMessageRouter::new(
+        handler_registry,
         peer_registry.clone(),
         broadcaster.clone(),
     ));
@@ -122,14 +129,15 @@ pub async fn start_enhanced_network<'a>(
         router
     };
 
-    let router = if let Some(consensus) = consensus.clone() {
+    let _router = if let Some(consensus) = consensus.clone() {
         router.with_consensus(consensus)
     } else {
         router
     };
 
     // Create the system router
-    let system_router = service::system_router::SystemRouter::new(service_arc.router().clone())
+    let router_arc = service_arc.router();
+    let system_router = service::system_router::SystemRouter::new(router_arc)
         .with_broadcaster(broadcaster.clone());
 
     let system_router = if let Some(mempool) = mempool.clone() {
@@ -158,56 +166,58 @@ pub async fn start_enhanced_network<'a>(
 
     // Initialize the system router
     tokio::spawn(async move {
-        system_router.initialize().await;
+        if let Err(e) = system_router.initialize().await {
+            error!("Failed to initialize system router: {}", e);
+        }
     });
 
     // Create integrations if subsystems are provided
-    if let (Some(mempool), Some(block_store)) = (mempool.clone(), block_store.clone()) {
+    if let (Some(mempool), Some(block_store_clone)) = (mempool.clone(), block_store.clone()) {
+        // Clone block_store for each use to avoid ownership issues
         // Create mempool integration
-        let mempool_integration = integration::mempool_integration::MempoolIntegration::new(
+        let _mempool_integration = integration::mempool_integration::MempoolIntegration::new(
             mempool,
             broadcaster.clone(),
             peer_registry.clone(),
         ).with_reputation(reputation.clone());
 
         // Create storage integration
-        let storage_integration = integration::storage_integration::StorageIntegration::new(
-            block_store,
+        let _storage_integration = integration::storage_integration::StorageIntegration::new(
+            block_store_clone.clone(),
             broadcaster.clone(),
             peer_registry.clone(),
         ).with_reputation(reputation.clone());
 
         // Create sync service
         let sync_service = Arc::new(sync::sync_service::SyncService::new(
-            block_store.clone(),
+            block_store_clone.clone(),
             peer_registry.clone(),
             broadcaster.clone(),
         ).with_advanced_registry(advanced_registry.clone())
          .with_event_bus(event_bus.clone())
          .with_reputation(reputation.clone()));
 
-        // Create sync manager
-        let sync_manager = sync::sync_manager::SyncManager::new(
-            sync_service,
-            block_store.clone(),
-            peer_registry.clone(),
-            broadcaster.clone(),
-        ).with_advanced_registry(advanced_registry.clone())
+        // Create sync manager if block_store is available
+        if let Some(block_store_clone) = block_store.clone() {
+            let _sync_manager = sync::sync_manager::SyncManager::new(
+                sync_service,
+                block_store_clone,
+                peer_registry.clone(),
+                broadcaster.clone(),
+            ).with_advanced_registry(advanced_registry.clone())
          .with_event_bus(event_bus.clone())
          .with_reputation(reputation.clone());
+        }
 
-        // Start the sync manager
-        tokio::spawn(async move {
-            if let Err(e) = sync_manager.start().await {
-                error!("Failed to start sync manager: {}", e);
-            }
-        });
+        // We've already started the sync manager in the if block above
     }
 
     // Start the network service
     let service_clone = service_arc.clone();
     tokio::spawn(async move {
-        service_clone.run().await;
+        // Create a mutable copy of the service
+        let mut service = (*service_clone).clone();
+        service.run().await;
     });
 
     service_arc

@@ -60,7 +60,7 @@ pub fn choose_fork(
     // If the new block is at a higher height, we need to check if it's
     // part of a valid chain
     let mut current_block = new_block.clone();
-    let mut common_ancestor: Option<Block> = None;
+    let _common_ancestor: Option<Block> = None;
 
     // Traverse backwards until we find a common ancestor
     while current_block.height > current_state.height {

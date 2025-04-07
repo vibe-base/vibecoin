@@ -219,7 +219,7 @@ impl<'a> BlockProcessor<'a> {
     }
 
     /// Apply transactions to get state changes
-    fn apply_transactions(&self, block: &Block, transactions: &[TransactionRecord]) -> Result<Vec<(Hash, AccountState)>, String> {
+    fn apply_transactions(&self, _block: &Block, transactions: &[TransactionRecord]) -> Result<Vec<(Hash, AccountState)>, String> {
         let mut state_changes = Vec::new();
 
         // Create a temporary state store for validation

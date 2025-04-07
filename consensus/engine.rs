@@ -43,39 +43,39 @@ use crate::consensus::mining::block_producer::BlockProducer;
 use crate::consensus::block_processor::{BlockProcessor, BlockProcessingResult};
 
 /// Main consensus engine
-pub struct ConsensusEngine<'a> {
+pub struct ConsensusEngine {
     /// Consensus configuration
     config: ConsensusConfig,
 
     /// Block store
-    block_store: Arc<BlockStore<'a>>,
+    block_store: Arc<BlockStore<'static>>,
 
     /// Transaction store
-    tx_store: Arc<TxStore<'a>>,
+    tx_store: Arc<TxStore<'static>>,
 
     /// State store
-    state_store: Arc<StateStore<'a>>,
+    state_store: Arc<StateStore<'static>>,
 
     /// Mempool
     mempool: Arc<Mempool>,
 
     /// Block validator
-    block_validator: Arc<BlockValidator<'a>>,
+    block_validator: Arc<BlockValidator<'static>>,
 
     /// Transaction validator
-    tx_validator: Arc<TransactionValidator<'a>>,
+    tx_validator: Arc<TransactionValidator<'static>>,
 
     /// PoH generator
     poh_generator: Arc<Mutex<PoHGenerator>>,
 
     /// Block producer
-    block_producer: Arc<Mutex<BlockProducer<'a>>>,
+    block_producer: Arc<Mutex<BlockProducer<'static>>>,
 
     /// Block processor
-    block_processor: Arc<BlockProcessor<'a>>,
+    block_processor: Arc<BlockProcessor<'static>>,
 
     /// Batch operation manager
-    batch_manager: Arc<BatchOperationManager<'a>>,
+    batch_manager: Arc<BatchOperationManager<'static>>,
 
     /// Chain state
     chain_state: Arc<Mutex<ChainState>>,
@@ -90,19 +90,19 @@ pub struct ConsensusEngine<'a> {
     tx_rx: mpsc::Receiver<TransactionRecord>,
 }
 
-impl<'a> ConsensusEngine<'a> {
+impl ConsensusEngine {
     /// Create a new consensus engine
     pub fn new(
         config: ConsensusConfig,
-        kv_store: Arc<dyn KVStore + 'a>,
-        block_store: Arc<BlockStore<'a>>,
-        tx_store: Arc<TxStore<'a>>,
-        state_store: Arc<StateStore<'a>>,
+        kv_store: Arc<dyn KVStore + 'static>,
+        block_store: Arc<BlockStore<'static>>,
+        tx_store: Arc<TxStore<'static>>,
+        state_store: Arc<StateStore<'static>>,
         network_tx: mpsc::Sender<NetMessage>,
     ) -> Self {
         // Create channels
-        let (block_tx, block_rx) = mpsc::channel(100);
-        let (tx_tx, tx_rx) = mpsc::channel(1000);
+        let (_block_tx, block_rx) = mpsc::channel(100);
+        let (_tx_tx, tx_rx) = mpsc::channel(1000);
 
         // Create the mempool
         let mempool = Arc::new(Mempool::new(10000));
@@ -224,13 +224,12 @@ impl<'a> ConsensusEngine<'a> {
     }
 
     /// Get a channel for sending blocks to the consensus engine
-    pub fn block_channel(&self) -> mpsc::Sender<Block> {
+    pub fn block_channel(self: &Arc<Self>) -> mpsc::Sender<Block> {
         // Create a new channel
         let (tx, rx) = mpsc::channel::<Block>(100);
 
-        // Clone the Arc pointers to avoid lifetime issues
-        let block_processor = self.block_processor.clone();
-        let chain_state = self.chain_state.clone();
+        // Clone self as Arc to extend lifetime to 'static
+        let engine = self.clone();
 
         // Spawn a task with 'static lifetime
         tokio::spawn(async move {
@@ -239,10 +238,10 @@ impl<'a> ConsensusEngine<'a> {
                 debug!("Received block from network: height={}", block.height);
 
                 // Get the chain state
-                let chain_state_guard = chain_state.lock().await;
+                let chain_state_guard = engine.chain_state.lock().await;
 
                 // Process the block
-                let result = block_processor.process_block(&block, &chain_state_guard.current_target, &chain_state_guard).await;
+                let result = engine.block_processor.process_block(&block, &chain_state_guard.current_target, &chain_state_guard).await;
                 match result {
                     BlockProcessingResult::Success => {
                         debug!("Block processed: Success");

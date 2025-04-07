@@ -38,6 +38,24 @@ pub struct NetworkService {
     incoming_rx: mpsc::Receiver<(String, NetMessage)>,
 }
 
+// Implement Clone for NetworkService
+impl Clone for NetworkService {
+    fn clone(&self) -> Self {
+        // Create new channels
+        let (incoming_tx, incoming_rx) = mpsc::channel(100);
+        let (_, message_rx) = mpsc::channel(100);
+
+        Self {
+            config: self.config.clone(),
+            peer_manager: self.peer_manager.clone(),
+            router: self.router.clone(),
+            message_rx,
+            incoming_tx,
+            incoming_rx,
+        }
+    }
+}
+
 impl NetworkService {
     /// Create a new network service
     pub fn new(
@@ -77,7 +95,7 @@ impl NetworkService {
     }
 
     /// Run the network service
-    pub async fn run(&self) {
+    pub async fn run(&mut self) {
         // Start the peer manager
         self.peer_manager.start().await;
 
@@ -101,9 +119,10 @@ impl NetworkService {
     }
 
     /// Process incoming and outgoing messages
-    async fn process_messages(&self) {
-        let mut message_rx = self.message_rx.clone();
-        let mut incoming_rx = self.incoming_rx.clone();
+    async fn process_messages(&mut self) {
+        // We can't clone Receivers, so we need to use mutable references
+        let message_rx = &mut self.message_rx;
+        let incoming_rx = &mut self.incoming_rx;
 
         loop {
             tokio::select! {
@@ -128,8 +147,8 @@ impl NetworkService {
     }
 
     /// Get the message router
-    pub fn router(&self) -> &MessageRouter {
-        &self.router
+    pub fn router(&self) -> Arc<MessageRouter> {
+        self.router.clone()
     }
 }
 

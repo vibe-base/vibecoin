@@ -1,18 +1,18 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+
 use tokio::sync::{mpsc, RwLock};
 use log::{debug, error, info, warn};
 
-use crate::storage::block_store::{Block, BlockStore};
+use crate::storage::block_store::BlockStore;
 use crate::network::types::message::NetMessage;
 use crate::network::peer::broadcaster::PeerBroadcaster;
 use crate::network::peer::registry::PeerRegistry;
-use crate::network::peer::advanced_registry::{AdvancedPeerRegistry, PeerId};
-use crate::network::peer::reputation::{ReputationSystem, ReputationEvent};
+use crate::network::peer::advanced_registry::AdvancedPeerRegistry;
+use crate::network::peer::reputation::ReputationSystem;
 use crate::network::events::event_bus::EventBus;
-use crate::network::events::event_types::{NetworkEvent, SyncResult, EventType};
-use crate::network::service::advanced_router::SyncRequest;
-use crate::network::sync::sync_service::{SyncService, SyncConfig, SyncState};
+use crate::network::events::event_types::{NetworkEvent, EventType};
+
+use crate::network::sync::sync_service::{SyncService, SyncState};
 
 /// Sync strategy
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,7 +202,7 @@ impl SyncManager {
             checkpoints.last().cloned()
         };
 
-        let checkpoint = match checkpoint {
+        let _checkpoint = match checkpoint {
             Some(cp) => cp,
             None => {
                 warn!("No checkpoints available for fast sync");
@@ -239,18 +239,25 @@ impl SyncManager {
         };
 
         // Request the latest block from the peer
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             &sync_peer,
             NetMessage::RequestBlock(u64::MAX), // Special value to request the latest block
         ).await {
-            debug!("Requested latest block from peer {}", sync_peer);
+            Ok(true) => {
+                debug!("Requested latest block from peer {}", sync_peer);
 
-            // In a real implementation, we would wait for the response
-            // For now, just return a placeholder value
-            Ok(1000)
-        } else {
-            error!("Failed to request latest block from peer {}", sync_peer);
-            Err(format!("Failed to request latest block from peer {}", sync_peer))
+                // In a real implementation, we would wait for the response
+                // For now, just return a placeholder value
+                Ok(1000)
+            },
+            Ok(false) => {
+                error!("Failed to request latest block from peer {}", sync_peer);
+                Err(format!("Failed to request latest block from peer {}", sync_peer))
+            },
+            Err(e) => {
+                error!("Error sending request to peer {}: {}", sync_peer, e);
+                Err(e.to_string())
+            }
         }
     }
 
@@ -258,9 +265,9 @@ impl SyncManager {
     async fn handle_sync_events(
         mut sync_rx: mpsc::Receiver<NetworkEvent>,
         running: Arc<RwLock<bool>>,
-        sync_service: Arc<SyncService>,
+        _sync_service: Arc<SyncService>,
         strategy: SyncStrategy,
-        checkpoints: Arc<RwLock<Vec<(u64, [u8; 32])>>>,
+        _checkpoints: Arc<RwLock<Vec<(u64, [u8; 32])>>>,
     ) {
         info!("Starting sync event handler");
 

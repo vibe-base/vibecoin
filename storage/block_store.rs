@@ -63,6 +63,10 @@ pub enum BlockStoreError {
     #[error("Block not found: {0}")]
     BlockNotFound(String),
 
+    /// Invalid block data
+    #[error("Invalid block data: {0}")]
+    InvalidBlockData(String),
+
     /// Other error
     #[error("Other error: {0}")]
     Other(String),
@@ -255,20 +259,17 @@ impl<'a> BlockStore<'a> {
         }
     }
 
-    /// Get the latest block
-    pub fn get_latest_block(&self) -> Option<Block> {
-        self.get_latest_height().and_then(|height| self.get_block_by_height(height))
-    }
+    // This method is already defined above
 
     /// Get a range of blocks by height
-    pub fn get_blocks_by_height_range(&self, start: u64, end: u64) -> Vec<Block> {
+    pub fn get_blocks_by_height_range(&self, start: u64, end: u64) -> Result<Vec<Block>, BlockStoreError> {
         let mut blocks = Vec::new();
         for height in start..=end {
-            if let Some(block) = self.get_block_by_height(height) {
+            if let Ok(Some(block)) = self.get_block_by_height(height) {
                 blocks.push(block);
             }
         }
-        blocks
+        Ok(blocks)
     }
 
     /// Check if a block exists by hash

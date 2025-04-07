@@ -8,6 +8,8 @@ use log::{debug, error, info, warn};
 
 use crate::network::peer::state::{ConnectionState, PeerInfo};
 use crate::network::peer::handler::PeerHandler;
+use crate::network::peer::registry::PeerRegistry;
+use crate::network::peer::broadcaster::PeerBroadcaster;
 use crate::network::types::node_info::NodeInfo;
 use crate::network::types::message::NetMessage;
 use crate::network::service::router::MessageRouter;
@@ -37,6 +39,21 @@ pub struct PeerManager {
 
     /// Maximum number of inbound connections
     max_inbound: usize,
+}
+
+impl Clone for PeerManager {
+    fn clone(&self) -> Self {
+        Self {
+            peers: RwLock::new(HashMap::new()),
+            node_id_to_addr: RwLock::new(HashMap::new()),
+            peer_senders: RwLock::new(HashMap::new()),
+            local_node_info: self.local_node_info.clone(),
+            router: self.router.clone(),
+            incoming_tx: self.incoming_tx.clone(),
+            max_outbound: self.max_outbound,
+            max_inbound: self.max_inbound,
+        }
+    }
 }
 
 impl PeerManager {
@@ -118,12 +135,19 @@ impl PeerManager {
 
         if let Some(peer_info) = peer_info {
             // Create and start the peer handler
+            let peer_registry = Arc::new(PeerRegistry::new());
+            let broadcaster = Arc::new(PeerBroadcaster::with_registry(Some(peer_registry.clone())));
+
             let handler = PeerHandler::new(
                 stream,
-                peer_info,
+                peer_info.id.clone(),
+                addr,
                 self.local_node_info.clone(),
                 self.router.clone(),
+                peer_registry,
+                broadcaster,
                 self.incoming_tx.clone(),
+                false, // Incoming connection
             );
 
             // Get the message sender
@@ -149,12 +173,22 @@ impl PeerManager {
             return;
         }
 
+        // Update the peer state and get a clone
+        {
+            let mut peers = self.peers.write().await;
+            if let Some(peer_info) = peers.get_mut(&addr) {
+                // Create a mutable PeerInfo to update
+                let mut peer_info_mut = (**peer_info).clone();
+                peer_info_mut.update_state(ConnectionState::Connecting);
+                // Replace the Arc with a new one containing the updated PeerInfo
+                *peer_info = Arc::new(peer_info_mut);
+            }
+        }
+
         // Get the peer info
         let peer_info = {
-            let mut peers = self.peers.write().await;
-            let peer_info = peers.get_mut(&addr).unwrap();
-            peer_info.update_state(ConnectionState::Connecting);
-            peer_info.clone()
+            let peers = self.peers.read().await;
+            peers.get(&addr).unwrap().clone()
         };
 
         // Connect to the peer
@@ -163,12 +197,19 @@ impl PeerManager {
                 info!("Connected to peer {}", addr);
 
                 // Create and start the peer handler
+                let peer_registry = Arc::new(PeerRegistry::new());
+                let broadcaster = Arc::new(PeerBroadcaster::with_registry(Some(peer_registry.clone())));
+
                 let handler = PeerHandler::new(
                     stream,
-                    peer_info,
+                    peer_info.id.clone(),
+                    addr,
                     self.local_node_info.clone(),
                     self.router.clone(),
+                    peer_registry,
+                    broadcaster,
                     self.incoming_tx.clone(),
+                    true, // Outbound connection
                 );
 
                 // Get the message sender
@@ -191,7 +232,11 @@ impl PeerManager {
                 // Update peer state
                 let mut peers = self.peers.write().await;
                 if let Some(peer_info) = peers.get_mut(&addr) {
-                    peer_info.update_state(ConnectionState::Failed);
+                    // Create a mutable PeerInfo to update
+                    let mut peer_info_mut = (**peer_info).clone();
+                    peer_info_mut.update_state(ConnectionState::Failed);
+                    // Replace the Arc with a new one containing the updated PeerInfo
+                    *peer_info = Arc::new(peer_info_mut);
                 }
             }
         }

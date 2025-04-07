@@ -769,7 +769,7 @@ impl<'a> StateIndexingManager<'a> {
         let results = self.store.scan_prefix(prefix.as_bytes())
             .map_err(IndexingError::KVStoreError)?;
 
-        for (key, value) in results {
+        for (key, _value) in results {
             // Extract address from key
             let key_str = String::from_utf8_lossy(&key);
             let parts: Vec<&str> = key_str.split(':').collect();

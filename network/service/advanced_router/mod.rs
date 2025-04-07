@@ -12,6 +12,10 @@ use crate::network::types::message::NetMessage;
 use crate::network::peer::registry::PeerRegistry;
 use crate::network::peer::broadcaster::PeerBroadcaster;
 use crate::network::handlers::message_handler::HandlerRegistry;
+use crate::mempool::Mempool;
+use crate::storage::block_store::BlockStore;
+use crate::storage::tx_store::TxStore;
+use crate::consensus::engine::ConsensusEngine;
 
 /// Message type categories
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -123,6 +127,46 @@ impl AdvancedMessageRouter {
         }
     }
 
+    /// Add a mempool to the router
+    pub fn with_mempool(self: Arc<Self>, _mempool: Arc<Mempool>) -> Arc<Self> {
+        // Register mempool handlers here
+        // This is a placeholder implementation
+        info!("Adding mempool to advanced message router");
+
+        // Return self for method chaining
+        self
+    }
+
+    /// Add a block store to the router
+    pub fn with_block_store(self: Arc<Self>, _block_store: Arc<BlockStore>) -> Arc<Self> {
+        // Register block store handlers here
+        // This is a placeholder implementation
+        info!("Adding block store to advanced message router");
+
+        // Return self for method chaining
+        self
+    }
+
+    /// Add a transaction store to the router
+    pub fn with_tx_store(self: Arc<Self>, _tx_store: Arc<TxStore>) -> Arc<Self> {
+        // Register transaction store handlers here
+        // This is a placeholder implementation
+        info!("Adding transaction store to advanced message router");
+
+        // Return self for method chaining
+        self
+    }
+
+    /// Add a consensus engine to the router
+    pub fn with_consensus(self: Arc<Self>, _consensus: Arc<ConsensusEngine>) -> Arc<Self> {
+        // Register consensus handlers here
+        // This is a placeholder implementation
+        info!("Adding consensus engine to advanced message router");
+
+        // Return self for method chaining
+        self
+    }
+
     /// Start the router
     pub async fn start(&self) {
         info!("Starting advanced message router");
@@ -130,7 +174,7 @@ impl AdvancedMessageRouter {
         // Start the message processor
         let message_queue = Arc::clone(&self.message_queue);
         let handlers = Arc::clone(&self.handlers);
-        let peer_registry = Arc::clone(&self.peer_registry);
+        let _peer_registry = Arc::clone(&self.peer_registry);
 
         tokio::spawn(async move {
             loop {

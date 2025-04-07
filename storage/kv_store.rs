@@ -123,6 +123,9 @@ pub trait KVStore: Send + Sync {
 
     /// Iterate over key-value pairs with a prefix
     fn scan_prefix(&self, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, KVStoreError>;
+
+    /// Flush any pending writes to disk
+    fn flush(&self) -> Result<(), KVStoreError>;
 }
 
 /// RocksDB implementation of KVStore
@@ -218,6 +221,11 @@ impl KVStore for RocksDBStore {
         }
 
         Ok(results)
+    }
+
+    fn flush(&self) -> Result<(), KVStoreError> {
+        self.db.flush()
+            .map_err(|e| KVStoreError::RocksDBError(format!("Failed to flush: {}", e)))
     }
 }
 

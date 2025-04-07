@@ -17,6 +17,10 @@ pub enum StateStoreError {
     #[error("KVStore error: {0}")]
     KVStoreError(#[from] KVStoreError),
 
+    /// TxStore error
+    #[error("TxStore error: {0}")]
+    TxStoreError(#[from] crate::storage::tx_store::TxStoreError),
+
     /// Serialization error
     #[error("Serialization error: {0}")]
     SerializationError(String),
@@ -673,7 +677,7 @@ impl<'a> StateStore<'a> {
         // Process each transaction in the block
         for tx_hash in &block.transactions {
             // Get the transaction details
-            let tx = match tx_store.get_transaction(tx_hash) {
+            let tx = match tx_store.get_transaction(tx_hash)? {
                 Some(tx) => tx,
                 None => {
                     error!("Transaction {} not found in tx_store", hex::encode(tx_hash));
@@ -743,7 +747,7 @@ impl<'a> StateStore<'a> {
             recipient.last_updated = block.height;
 
             // Handle contract execution if this is a contract call
-            if let Some(data) = &tx.data {
+            if let Some(_data) = &tx.data {
                 if recipient.account_type == AccountType::Contract && recipient.code.is_some() {
                     // In a real implementation, we would execute the contract code here
                     // For now, we'll just log that a contract call was made

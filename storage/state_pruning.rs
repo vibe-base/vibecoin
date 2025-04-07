@@ -329,7 +329,7 @@ impl<'a> StatePruner<'a> {
     }
 
     /// Get accounts at a specific height
-    fn get_accounts_at_height(&self, height: u64, root: &Hash) -> PruningResult<Vec<Hash>> {
+    fn get_accounts_at_height(&self, height: u64, _root: &Hash) -> PruningResult<Vec<Hash>> {
         let mut accounts = Vec::new();
 
         // Scan all account keys for this height

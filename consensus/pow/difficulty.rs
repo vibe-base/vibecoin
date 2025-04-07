@@ -23,7 +23,7 @@ pub fn calculate_next_target(
             warn!("Could not find block at height {}, using initial difficulty", start_height);
             return Target::from_difficulty(config.initial_difficulty);
         },
-        Err(e) => {
+        Err(_e) => {
             warn!("Could not find block at height {}, using initial difficulty", start_height);
             return Target::from_difficulty(config.initial_difficulty);
         }
@@ -36,7 +36,7 @@ pub fn calculate_next_target(
             warn!("Could not find block at height {}, using initial difficulty", current_height);
             return Target::from_difficulty(config.initial_difficulty);
         },
-        Err(e) => {
+        Err(_e) => {
             warn!("Could not find block at height {}, using initial difficulty", current_height);
             return Target::from_difficulty(config.initial_difficulty);
         }
@@ -81,13 +81,13 @@ pub fn calculate_next_target(
 /// Get the target at a specific height
 pub fn get_target_at_height(block_store: &BlockStore<'_>, height: u64) -> Target {
     // Get the block at the specified height
-    let block = match block_store.get_block_by_height(height) {
+    let _block = match block_store.get_block_by_height(height) {
         Ok(Some(block)) => block,
         Ok(None) => {
             warn!("Could not find block at height {}, using default target", height);
             return Target::from_difficulty(1);
         },
-        Err(e) => {
+        Err(_e) => {
             warn!("Could not find block at height {}, using default target", height);
             return Target::from_difficulty(1);
         }

@@ -6,7 +6,7 @@ use log::{debug, error, info, warn};
 use crate::network::types::message::NetMessage;
 
 /// Type for message handlers
-type MessageHandler = Box<dyn Fn(String, NetMessage) -> bool + Send + Sync>;
+type MessageHandler = Arc<Box<dyn Fn(String, NetMessage) -> bool + Send + Sync>>;
 
 /// Router for network messages
 pub struct MessageRouter {
@@ -33,7 +33,7 @@ impl MessageRouter {
             .entry(message_type.to_string())
             .or_insert_with(Vec::new);
 
-        type_handlers.push(Box::new(handler));
+        type_handlers.push(Arc::new(Box::new(handler)));
     }
 
     /// Route a message to the appropriate handlers
@@ -54,16 +54,18 @@ impl MessageRouter {
         debug!("Routing {} message from {}", message_type, node_id);
 
         // Get handlers for this message type
-        let handlers_map = self.handlers.read().await;
-        let handlers = match handlers_map.get(message_type) {
-            Some(h) => h.clone(),
-            None => {
+        let handlers = {
+            let handlers_map = self.handlers.read().await;
+
+            // Check if we have handlers for this message type
+            if !handlers_map.contains_key(message_type) {
                 debug!("No handlers for {} messages", message_type);
                 return;
             }
-        };
-        // Drop the read lock before proceeding
-        drop(handlers_map);
+
+            // Clone the handlers before dropping the lock
+            handlers_map.get(message_type).unwrap().clone()
+        }; // handlers_map is dropped here automatically
 
         // Call each handler
         let mut handled = false;

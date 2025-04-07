@@ -410,6 +410,9 @@ impl<'a> StateManager<'a> {
         let tx_entries = self.store.scan_prefix(tx_prefix.as_bytes())
             .map_err(|e| StateStoreError::KVStoreError(e))?;
 
+        // Count transactions for logging
+        let tx_count = tx_entries.len();
+
         // Create a batch for all state changes
         let mut batch = Vec::new();
 
@@ -470,7 +473,7 @@ impl<'a> StateManager<'a> {
 
             // Update sender balance and nonce
             let new_sender_balance = sender_state.balance.checked_sub(tx.value + fee)
-                .ok_or_else(|| StateStoreError::InsufficientBalance(hex::encode(&tx.sender)))?;
+                .ok_or_else(|| StateStoreError::InsufficientBalance(tx.value + fee, sender_state.balance))?;
 
             // Create a new sender state with updated balance and nonce
             let mut new_sender_state = sender_state.clone();
@@ -541,7 +544,7 @@ impl<'a> StateManager<'a> {
         }
 
         info!("Successfully applied block {} with {} transactions",
-              block.height, tx_entries.len());
+              block.height, tx_count);
 
         Ok(())
     }

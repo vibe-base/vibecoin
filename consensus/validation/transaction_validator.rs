@@ -75,9 +75,9 @@ impl<'a> TransactionValidator<'a> {
     /// Verify the transaction signature
     fn verify_signature(
         &self,
-        tx: &TransactionRecord,
-        signature: &VibeSignature,
-        sender_pubkey: &VibePublicKey,
+        _tx: &TransactionRecord,
+        _signature: &VibeSignature,
+        _sender_pubkey: &VibePublicKey,
     ) -> bool {
         // In a real implementation, we would:
         // 1. Serialize the transaction
@@ -103,9 +103,9 @@ impl<'a> TransactionValidator<'a> {
     }
 
     /// Check if the transaction nonce is valid
-    fn check_nonce(&self, tx: &TransactionRecord, sender_address: &[u8; 32]) -> bool {
+    fn check_nonce(&self, _tx: &TransactionRecord, sender_address: &[u8; 32]) -> bool {
         // Get the sender's account state
-        let sender_state = match self.state_store.get_account_state(sender_address) {
+        let _sender_state = match self.state_store.get_account_state(sender_address) {
             Some(state) => state,
             None => {
                 // If the account doesn't exist, only nonce 0 is valid

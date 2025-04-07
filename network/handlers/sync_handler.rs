@@ -93,14 +93,19 @@ impl SyncHandler {
         let block = self.block_store.get_block_by_height(height);
 
         // Send the response
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             source_peer,
             NetMessage::ResponseBlock(block.ok().flatten()),
         ).await {
-            Ok(())
-        } else {
-            error!("Failed to send block response to peer {}", source_peer);
-            Err(HandlerError::NetworkError(format!("Send failed")))
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                error!("Failed to send block response to peer {}", source_peer);
+                Err(HandlerError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending block response to peer {}: {}", source_peer, e);
+                Err(HandlerError::NetworkError(format!("Send error: {}", e)))
+            }
         }
     }
 
@@ -125,14 +130,19 @@ impl SyncHandler {
         }
 
         // Send the response
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             source_peer,
             NetMessage::ResponseBlockRange(blocks),
         ).await {
-            Ok(())
-        } else {
-            error!("Failed to send block range response to peer {}", source_peer);
-            Err(HandlerError::NetworkError(format!("Send failed")))
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                error!("Failed to send block range response to peer {}", source_peer);
+                Err(HandlerError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending block range response to peer {}: {}", source_peer, e);
+                Err(HandlerError::NetworkError(format!("Send error: {}", e)))
+            }
         }
     }
 
@@ -147,14 +157,19 @@ impl SyncHandler {
         let block = self.block_store.get_block_by_height(latest_height);
 
         // Send the response
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             source_peer,
             NetMessage::ResponseBlock(block.ok().flatten()),
         ).await {
-            Ok(())
-        } else {
-            error!("Failed to send latest block response to peer {}", source_peer);
-            Err(HandlerError::NetworkError(format!("Send failed")))
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                error!("Failed to send latest block response to peer {}", source_peer);
+                Err(HandlerError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending latest block response to peer {}: {}", source_peer, e);
+                Err(HandlerError::NetworkError(format!("Send error: {}", e)))
+            }
         }
     }
 
@@ -170,14 +185,19 @@ impl SyncHandler {
         let block = self.block_store.get_block_by_height(latest_height);
 
         // Send the response
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             source_peer,
             NetMessage::ResponseBlock(block.ok().flatten()),
         ).await {
-            Ok(())
-        } else {
-            error!("Failed to send chain state response to peer {}", source_peer);
-            Err(HandlerError::NetworkError(format!("Send failed")))
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                error!("Failed to send chain state response to peer {}", source_peer);
+                Err(HandlerError::NetworkError(format!("Send failed")))
+            },
+            Err(e) => {
+                error!("Error sending chain state response to peer {}: {}", source_peer, e);
+                Err(HandlerError::NetworkError(format!("Send error: {}", e)))
+            }
         }
     }
 }

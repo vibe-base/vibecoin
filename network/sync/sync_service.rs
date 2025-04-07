@@ -10,7 +10,7 @@ use crate::network::peer::registry::PeerRegistry;
 use crate::network::peer::advanced_registry::AdvancedPeerRegistry;
 use crate::network::peer::reputation::{ReputationSystem, ReputationEvent};
 use crate::network::events::event_bus::EventBus;
-use crate::network::events::event_types::{NetworkEvent, SyncResult, EventType};
+use crate::network::events::event_types::{NetworkEvent, SyncResult};
 use crate::network::service::advanced_router::SyncRequest;
 
 /// Sync error
@@ -130,10 +130,10 @@ pub struct SyncService {
     config: SyncConfig,
 
     /// Channel for block responses
-    block_rx: Option<mpsc::Receiver<(Block, String)>>,
+    block_rx: Arc<RwLock<Option<mpsc::Receiver<(Block, String)>>>>,
 
     /// Channel for block range responses
-    block_range_rx: Option<mpsc::Receiver<(Vec<Block>, String)>>,
+    block_range_rx: Arc<RwLock<Option<mpsc::Receiver<(Vec<Block>, String)>>>>,
 
     /// Whether the service is running
     running: Arc<RwLock<bool>>,
@@ -155,8 +155,8 @@ impl SyncService {
             reputation: None,
             sync_state: Arc::new(RwLock::new(SyncState::default())),
             config: SyncConfig::default(),
-            block_rx: None,
-            block_range_rx: None,
+            block_rx: Arc::new(RwLock::new(None)),
+            block_range_rx: Arc::new(RwLock::new(None)),
             running: Arc::new(RwLock::new(false)),
         }
     }
@@ -187,18 +187,20 @@ impl SyncService {
 
     /// Set the block response channel
     pub fn with_block_channel(mut self, rx: mpsc::Receiver<(Block, String)>) -> Self {
-        self.block_rx = Some(rx);
+        // Since we can't use async in a constructor, we'll just create a new RwLock
+        self.block_rx = Arc::new(RwLock::new(Some(rx)));
         self
     }
 
     /// Set the block range response channel
     pub fn with_block_range_channel(mut self, rx: mpsc::Receiver<(Vec<Block>, String)>) -> Self {
-        self.block_range_rx = Some(rx);
+        // Since we can't use async in a constructor, we'll just create a new RwLock
+        self.block_range_rx = Arc::new(RwLock::new(Some(rx)));
         self
     }
 
     /// Start the sync service
-    pub async fn start(&mut self) -> Result<(), String> {
+    pub async fn start(&self) -> Result<(), String> {
         // Check if we're already running
         {
             let running = self.running.read().await;
@@ -229,7 +231,7 @@ impl SyncService {
 
             // Auto-sync on startup if enabled
             if config.auto_sync {
-                let _ = Self::sync_with_network(
+                if let Err(e) = Self::sync_with_network(
                     block_store.clone(),
                     peer_registry.clone(),
                     broadcaster.clone(),
@@ -238,7 +240,9 @@ impl SyncService {
                     reputation.clone(),
                     advanced_registry.clone(),
                     &config,
-                ).await;
+                ).await {
+                    warn!("Sync failed: {}", e);
+                }
             }
 
             // Main sync loop
@@ -257,7 +261,7 @@ impl SyncService {
                 };
 
                 if !is_syncing {
-                    let _ = Self::sync_with_network(
+                    if let Err(e) = Self::sync_with_network(
                         block_store.clone(),
                         peer_registry.clone(),
                         broadcaster.clone(),
@@ -266,7 +270,9 @@ impl SyncService {
                         reputation.clone(),
                         advanced_registry.clone(),
                         &config,
-                    ).await;
+                    ).await {
+                        warn!("Sync failed: {}", e);
+                    }
                 }
             }
 
@@ -274,7 +280,12 @@ impl SyncService {
         });
 
         // Start the block response handler
-        if let Some(block_rx) = self.block_rx.take() {
+        let block_rx_option = {
+            let mut block_rx_guard = self.block_rx.write().await;
+            block_rx_guard.take()
+        };
+
+        if let Some(mut block_rx) = block_rx_option {
             let block_store = self.block_store.clone();
             let sync_state = self.sync_state.clone();
             let running = self.running.clone();
@@ -315,7 +326,7 @@ impl SyncService {
                                                 error: None,
                                             };
 
-                                            let _ = event_bus.publish(NetworkEvent::SyncCompleted(result)).await;
+                                            event_bus.publish(NetworkEvent::SyncCompleted(result)).await;
                                         }
                                     }
                                 }
@@ -338,7 +349,12 @@ impl SyncService {
         }
 
         // Start the block range response handler
-        if let Some(block_range_rx) = self.block_range_rx.take() {
+        let block_range_rx_option = {
+            let mut block_range_rx_guard = self.block_range_rx.write().await;
+            block_range_rx_guard.take()
+        };
+
+        if let Some(mut block_range_rx) = block_range_rx_option {
             let block_store = self.block_store.clone();
             let sync_state = self.sync_state.clone();
             let running = self.running.clone();
@@ -382,7 +398,7 @@ impl SyncService {
                                                     error: None,
                                                 };
 
-                                                let _ = event_bus.publish(NetworkEvent::SyncCompleted(result)).await;
+                                                event_bus.publish(NetworkEvent::SyncCompleted(result)).await;
                                             }
                                         }
                                     }
@@ -423,7 +439,7 @@ impl SyncService {
         event_bus: Option<Arc<EventBus>>,
         reputation: Option<Arc<ReputationSystem>>,
         advanced_registry: Option<Arc<AdvancedPeerRegistry>>,
-        config: &SyncConfig,
+        _config: &SyncConfig,
     ) -> Result<(), String> {
         // Get our current height
         let current_height = block_store.get_latest_height().unwrap_or(0);
@@ -448,10 +464,11 @@ impl SyncService {
         };
 
         // Request the latest block from the peer
-        if broadcaster.send_to_peer(
+        match broadcaster.send_to_peer(
             &sync_peer,
-            NetMessage::RequestBlock(u64::MAX) // Special value to request the latest block
+            NetMessage::RequestBlock(u64::MAX), // Special value to request the latest block
         ).await {
+            Ok(true) => {
                 debug!("Requested latest block from peer {}", sync_peer);
 
                 // Update sync state
@@ -467,22 +484,34 @@ impl SyncService {
 
                 // Publish sync requested event
                 if let Some(event_bus) = &event_bus {
-                    let _ = event_bus.publish(NetworkEvent::SyncRequested(
+                    event_bus.publish(NetworkEvent::SyncRequested(
                         SyncRequest::GetLatestBlock,
                         sync_peer.clone(),
                     )).await;
                 }
 
                 Ok(())
-        } else {
-            error!("Failed to request latest block from peer {}", sync_peer);
-
-            // Update peer reputation (timeout)
-            if let Some(reputation) = &reputation {
-                reputation.update_score(&sync_peer, ReputationEvent::Timeout);
             }
+            Ok(false) => {
+                error!("Failed to request latest block from peer {}", sync_peer);
 
-            Err(SyncError::NetworkError(format!("Failed to send request to peer {}", sync_peer)))
+                // Update peer reputation (timeout)
+                if let Some(reputation) = &reputation {
+                    reputation.update_score(&sync_peer, ReputationEvent::Timeout);
+                }
+
+                Err(format!("Failed to send request to peer {}", sync_peer))
+            }
+            Err(e) => {
+                error!("Error sending request to peer {}: {}", sync_peer, e);
+
+                // Update peer reputation (timeout)
+                if let Some(reputation) = &reputation {
+                    reputation.update_score(&sync_peer, ReputationEvent::Timeout);
+                }
+
+                Err(e)
+            }
         }
     }
 
@@ -520,10 +549,11 @@ impl SyncService {
         let start_height = current_height + 1;
         let end_height = target_height;
 
-        if self.broadcaster.send_to_peer(
+        match self.broadcaster.send_to_peer(
             &sync_peer,
             NetMessage::RequestBlockRange { start_height, end_height },
-        ).await {
+        ).await? {
+            true => {
                 info!("Requested blocks {}..{} from peer {}", start_height, end_height, sync_peer);
 
                 // Update sync state
@@ -540,22 +570,25 @@ impl SyncService {
 
                 // Publish sync requested event
                 if let Some(event_bus) = &self.event_bus {
-                    let _ = event_bus.publish(NetworkEvent::SyncRequested(
+                    event_bus.publish(NetworkEvent::SyncRequested(
                         SyncRequest::GetBlocks(start_height, end_height),
                         sync_peer.clone(),
                     )).await;
                 }
 
                 Ok(())
-        } else {
-            error!("Failed to request blocks from peer {}", sync_peer);
+            }
+            false => {
+                error!("Failed to request blocks from peer {}", sync_peer);
 
-            // Update peer reputation (timeout)
-            if let Some(reputation) = &self.reputation {
-                reputation.update_score(&sync_peer, ReputationEvent::Timeout);
+                // Update peer reputation (timeout)
+                if let Some(reputation) = &self.reputation {
+                    reputation.update_score(&sync_peer, ReputationEvent::Timeout);
+                }
+
+                Err(format!("Failed to send request to peer {}", sync_peer))
             }
 
-            Err(SyncError::NetworkError(format!("Failed to send request to peer {}", sync_peer)))
         }
     }
 

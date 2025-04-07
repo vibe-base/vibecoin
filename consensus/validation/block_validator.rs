@@ -99,7 +99,7 @@ impl<'a> BlockValidator<'a> {
     }
 
     /// Validate the block hash
-    fn validate_block_hash(&self, block: &Block) -> bool {
+    fn validate_block_hash(&self, _block: &Block) -> bool {
         // In a real implementation, we would compute the expected hash
         // based on the block contents and compare it to block.hash
         // For now, we'll just return true
@@ -198,7 +198,7 @@ impl<'a> BlockValidator<'a> {
         }
 
         // Get the previous block to start from its state
-        let prev_block = match self.block_store.get_block_by_hash(&block.prev_hash) {
+        let _prev_block = match self.block_store.get_block_by_hash(&block.prev_hash) {
             Ok(Some(b)) => b,
             Ok(None) => {
                 error!("Previous block {} not found", hex::encode(&block.prev_hash));

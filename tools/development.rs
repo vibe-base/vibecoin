@@ -128,7 +128,7 @@ impl<'a> DevelopmentTools<'a> {
         );
 
         // Sign the message
-        let signature = sign_message(sender_keypair, message.as_bytes());
+        let _signature = sign_message(sender_keypair, message.as_bytes());
 
         // Calculate the transaction ID (hash)
         let tx_hash = crate::crypto::hash::sha256(message.as_bytes());
@@ -139,7 +139,7 @@ impl<'a> DevelopmentTools<'a> {
     }
 
     /// Generate a test block
-    pub fn generate_test_block(&self, transactions: Vec<TransactionRecord>, miner: &[u8; 32]) -> Option<Block> {
+    pub fn generate_test_block(&self, transactions: Vec<TransactionRecord>, _miner: &[u8; 32]) -> Option<Block> {
         // Get the latest block
         let latest_block = match self.block_store.get_latest_block() {
             Ok(Some(block)) => block,
