@@ -511,6 +511,20 @@ impl<'a> StateStore<'a> {
         self.account_cache.clear();
     }
 
+    /// Clone the state store for validation purposes
+    ///
+    /// This creates a new StateStore that shares the same underlying KVStore
+    /// but has its own cache and state root. This is useful for validating
+    /// blocks without modifying the main state.
+    pub fn clone_for_validation(&self) -> Self {
+        Self {
+            store: self.store,
+            state_root: std::sync::RwLock::new(None),
+            account_cache: dashmap::DashMap::new(),
+            max_cache_size: self.max_cache_size,
+        }
+    }
+
     /// Apply a block's transactions to the state store
     ///
     /// This method processes all transactions in a block and updates the account states accordingly.
