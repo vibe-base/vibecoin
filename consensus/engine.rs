@@ -24,18 +24,18 @@ use crate::consensus::mining::block_producer::BlockProducer;
 use crate::consensus::block_processor::{BlockProcessor, BlockProcessingResult};
 
 /// Main consensus engine
-pub struct ConsensusEngine {
+pub struct ConsensusEngine<'a> {
     /// Consensus configuration
     config: ConsensusConfig,
 
     /// Block store
-    block_store: Arc<BlockStore<'static>>,
+    block_store: Arc<BlockStore<'a>>,
 
     /// Transaction store
-    tx_store: Arc<TxStore<'static>>,
+    tx_store: Arc<TxStore<'a>>,
 
     /// State store
-    state_store: Arc<StateStore<'static>>,
+    state_store: Arc<StateStore<'a>>,
 
     /// Mempool
     mempool: Arc<Mempool>,
@@ -50,13 +50,13 @@ pub struct ConsensusEngine {
     poh_generator: Arc<PoHGenerator>,
 
     /// Block producer
-    block_producer: Arc<Mutex<BlockProducer<'static>>>,
+    block_producer: Arc<Mutex<BlockProducer<'a>>>,
 
     /// Block processor
-    block_processor: Arc<BlockProcessor>,
+    block_processor: Arc<BlockProcessor<'a>>,
 
     /// Batch operation manager
-    batch_manager: Arc<BatchOperationManager>,
+    batch_manager: Arc<BatchOperationManager<'a>>,
 
     /// Chain state
     chain_state: Arc<Mutex<ChainState>>,
@@ -71,14 +71,14 @@ pub struct ConsensusEngine {
     tx_rx: mpsc::Receiver<TransactionRecord>,
 }
 
-impl ConsensusEngine {
+impl<'a> ConsensusEngine<'a> {
     /// Create a new consensus engine
     pub fn new(
         config: ConsensusConfig,
         kv_store: Arc<dyn KVStore>,
-        block_store: Arc<BlockStore<'static>>,
-        tx_store: Arc<TxStore<'static>>,
-        state_store: Arc<StateStore<'static>>,
+        block_store: Arc<BlockStore<'a>>,
+        tx_store: Arc<TxStore<'a>>,
+        state_store: Arc<StateStore<'a>>,
         network_tx: mpsc::Sender<NetMessage>,
     ) -> Self {
         // Create channels
