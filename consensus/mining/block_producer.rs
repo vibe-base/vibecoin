@@ -16,28 +16,28 @@ use crate::network::types::message::NetMessage;
 pub struct BlockProducer<'a> {
     /// Chain state
     chain_state: ChainState,
-    
+
     /// Block store
     block_store: Arc<BlockStore<'a>>,
-    
+
     /// Transaction store
     tx_store: Arc<TxStore<'a>>,
-    
+
     /// State store
     state_store: Arc<StateStore<'a>>,
-    
+
     /// Mempool
     mempool: Arc<Mempool>,
-    
+
     /// PoW miner
     miner: PoWMiner,
-    
+
     /// PoH generator
     poh_generator: Arc<PoHGenerator>,
-    
+
     /// Network sender
     network_tx: mpsc::Sender<NetMessage>,
-    
+
     /// Configuration
     config: ConsensusConfig,
 }
@@ -56,7 +56,7 @@ impl<'a> BlockProducer<'a> {
     ) -> Self {
         // Create the miner
         let miner = PoWMiner::new(config.clone());
-        
+
         Self {
             chain_state,
             block_store,
@@ -69,53 +69,66 @@ impl<'a> BlockProducer<'a> {
             config,
         }
     }
-    
+
     /// Create a block template
     pub fn create_block_template(&self) -> BlockTemplate {
         // Get pending transactions from the mempool
         let transactions = self.mempool.get_pending_transactions(
             self.config.max_transactions_per_block
         );
-        
+
         // Extract transaction IDs
         let tx_ids = transactions.iter()
             .map(|tx| tx.tx_id)
             .collect();
-        
+
+        // Calculate the state root
+        let state_root = match self.state_store.calculate_state_root(
+            self.chain_state.height + 1,
+            chrono::Utc::now().timestamp() as u64
+        ) {
+            Ok(root) => root.root_hash,
+            Err(e) => {
+                error!("Failed to calculate state root: {}", e);
+                [0u8; 32] // Fallback to zeros
+            }
+        };
+
         // Create the block template
         BlockTemplate {
             height: self.chain_state.height + 1,
             prev_hash: self.chain_state.latest_hash,
             timestamp: chrono::Utc::now().timestamp() as u64,
-            transactions: tx_ids,
-            state_root: [0u8; 32], // This would be computed based on state
+            transactions: tx_ids.clone(),
+            state_root,
+            tx_root: None, // Will be calculated when needed
             target: self.chain_state.current_target.clone(),
             poh_sequence_start: self.poh_generator.sequence(),
         }
     }
-    
+
     /// Mine a new block
     pub async fn mine_block(&self) -> Option<Block> {
         // Create a block template
         let template = self.create_block_template();
-        
+
         info!("Mining block at height {}", template.height);
-        
+
         // Mine the block
         let result = self.miner.mine_block(template).await;
-        
+
         match result {
             Some(mining_result) => {
                 let block = mining_result.block;
-                
+
                 // Mark transactions as included
                 for tx_id in &block.transactions {
                     self.mempool.mark_included(tx_id);
                 }
-                
+
                 // Broadcast the block
                 self.broadcast_block(&block).await;
-                
+
                 Some(block)
             }
             None => {
@@ -124,18 +137,18 @@ impl<'a> BlockProducer<'a> {
             }
         }
     }
-    
+
     /// Broadcast a block to the network
     async fn broadcast_block(&self, block: &Block) {
         // Create a network message
         let message = NetMessage::NewBlock(block.clone());
-        
+
         // Send the message
         if let Err(e) = self.network_tx.send(message).await {
             error!("Failed to broadcast block: {}", e);
         }
     }
-    
+
     /// Update the chain state
     pub fn update_chain_state(&mut self, new_state: ChainState) {
         self.chain_state = new_state;
@@ -147,30 +160,30 @@ mod tests {
     use super::*;
     use crate::storage::kv_store::RocksDBStore;
     use tempfile::tempdir;
-    
+
     #[tokio::test]
     async fn test_block_template_creation() {
         // Create a temporary directory for the database
         let temp_dir = tempdir().unwrap();
         let kv_store = RocksDBStore::new(temp_dir.path());
-        
+
         // Create the stores
         let block_store = Arc::new(BlockStore::new(&kv_store));
         let tx_store = Arc::new(TxStore::new(&kv_store));
         let state_store = Arc::new(StateStore::new(&kv_store));
-        
+
         // Create a mempool
         let mempool = Arc::new(Mempool::new(100));
-        
+
         // Create a config
         let config = ConsensusConfig::default();
-        
+
         // Create a PoH generator
         let poh_generator = Arc::new(PoHGenerator::new(&config));
-        
+
         // Create a network channel
         let (network_tx, _network_rx) = mpsc::channel(100);
-        
+
         // Create a chain state
         let chain_state = ChainState {
             height: 10,
@@ -179,7 +192,7 @@ mod tests {
             latest_timestamp: 100,
             latest_poh_sequence: 1000,
         };
-        
+
         // Create a block producer
         let producer = BlockProducer::new(
             chain_state,
@@ -191,7 +204,7 @@ mod tests {
             network_tx,
             config,
         );
-        
+
         // Add some transactions to the mempool
         let tx1 = TransactionRecord {
             tx_id: [1u8; 32],
@@ -201,7 +214,7 @@ mod tests {
             gas_used: 10,
             block_height: 0,
         };
-        
+
         let tx2 = TransactionRecord {
             tx_id: [2u8; 32],
             sender: [2u8; 32],
@@ -210,16 +223,17 @@ mod tests {
             gas_used: 10,
             block_height: 0,
         };
-        
+
         mempool.add_transaction(tx1);
         mempool.add_transaction(tx2);
-        
+
         // Create a block template
         let template = producer.create_block_template();
-        
+
         // Check the template
         assert_eq!(template.height, 11);
         assert_eq!(template.prev_hash, [10u8; 32]);
         assert_eq!(template.transactions.len(), 2);
+        assert!(template.tx_root.is_none()); // tx_root is calculated when needed
     }
 }

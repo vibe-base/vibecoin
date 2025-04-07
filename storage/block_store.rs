@@ -29,6 +29,9 @@ pub struct Block {
     /// State root hash (Merkle root of the state trie)
     pub state_root: Hash,
 
+    /// Transaction root hash (Merkle root of transactions)
+    pub tx_root: Hash,
+
     /// Proof of Work nonce
     pub nonce: u64,
 
@@ -251,6 +254,7 @@ mod tests {
             timestamp: 12345,
             transactions: vec![[2; 32], [3; 32]],
             state_root: [4; 32],
+            tx_root: [6; 32],
             nonce: 42,
             poh_seq: 100,
             poh_hash: [5; 32],
@@ -301,6 +305,7 @@ mod tests {
                 timestamp: 12345 + i,
                 transactions: vec![[i as u8 + 1; 32]],
                 state_root: [i as u8 + 2; 32],
+                tx_root: [i as u8 + 4; 32],
                 nonce: 42 + i,
                 poh_seq: 100 + i,
                 poh_hash: [i as u8 + 3; 32],
