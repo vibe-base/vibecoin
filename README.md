@@ -50,22 +50,43 @@ cargo test
 ### Running a Node
 
 ```bash
-# Initialize a new node
-./target/release/vibecoin init --network mainnet --data-dir ~/.vibecoin
+# Generate a default configuration
+./target/release/vibecoin-config --generate --output config.toml
+
+# Generate a genesis block
+./target/release/vibecoin-genesis --generate --output genesis.toml
 
 # Start the node
-./target/release/vibecoin start --rpc-port 8899 --p2p-port 8900
+./target/release/vibecoin --config config.toml --genesis genesis.toml
+```
+
+### Using Docker
+
+```bash
+# Start a local development network
+./scripts/bootstrap_devnet.sh
+docker-compose -f docker-compose.dev.yml up -d
+
+# Start a testnet node
+./scripts/bootstrap_testnet.sh
+docker-compose -f docker-compose.testnet.yml up -d
 ```
 
 ### Configuration Options
 
 | Option | Description | Default |
 |--------|-------------|--------|
-| `--network` | Network to connect to (mainnet, testnet, devnet) | `mainnet` |
-| `--data-dir` | Directory for blockchain data | `~/.vibecoin` |
-| `--rpc-port` | Port for JSON-RPC server | `8899` |
-| `--p2p-port` | Port for P2P communication | `8900` |
-| `--log-level` | Logging verbosity (error, warn, info, debug, trace) | `info` |
+| `-c, --config` | Configuration file | None |
+| `-g, --genesis` | Genesis file | None |
+| `-n, --network` | Network to connect to (dev, testnet, mainnet) | None |
+| `-d, --data-dir` | Directory for blockchain data | `./data/vibecoin` |
+| `-b, --bootstrap` | Bootstrap nodes (comma-separated) | None |
+| `--enable-mining` | Enable mining | `true` |
+| `--mining-threads` | Mining threads | `4` |
+| `--api-port` | Port for JSON-RPC server | `8545` |
+| `--api-host` | Host for JSON-RPC server | `127.0.0.1` |
+| `--listen-port` | Port for P2P communication | `30333` |
+| `--listen-addr` | Address for P2P communication | `0.0.0.0` |
 
 ## 📚 Documentation
 
@@ -77,6 +98,16 @@ Comprehensive documentation is available in the [docs](./docs) directory:
 - [Module Documentation](./docs/modules/README.md)
 
 ## 🧩 Core Modules
+
+### Deployment and Configuration
+
+VibeCoin provides comprehensive deployment and configuration tools:
+
+- **Configuration System**: TOML-based configuration for all node settings
+- **Genesis Generator**: Tool for creating custom genesis blocks
+- **Docker Support**: Containerized deployment for easy setup
+- **Network Scripts**: Bootstrap scripts for different network types
+- **Monitoring**: Prometheus metrics and Grafana dashboards
 
 ### Storage Module
 

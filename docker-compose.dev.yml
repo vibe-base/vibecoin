@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vibecoin-node1
+    volumes:
+      - ./data/node1:/data/vibecoin
+    ports:
+      - "30333:30333"
+      - "8545:8545"
+      - "9100:9100"
+    command: ["--config", "/data/vibecoin/config.toml", "--network", "dev"]
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped
+
+  node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vibecoin-node2
+    volumes:
+      - ./data/node2:/data/vibecoin
+    ports:
+      - "30334:30333"
+      - "8546:8545"
+      - "9101:9100"
+    command: ["--config", "/data/vibecoin/config.toml", "--network", "dev", "--bootstrap", "node1:30333"]
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped
+    depends_on:
+      - node1
+
+  node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vibecoin-node3
+    volumes:
+      - ./data/node3:/data/vibecoin
+    ports:
+      - "30335:30333"
+      - "8547:8545"
+      - "9102:9100"
+    command: ["--config", "/data/vibecoin/config.toml", "--network", "dev", "--bootstrap", "node1:30333"]
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped
+    depends_on:
+      - node1
+
+  explorer:
+    image: blockscout/blockscout:latest
+    container_name: vibecoin-explorer
+    ports:
+      - "4000:4000"
+    environment:
+      - ETHEREUM_JSONRPC_VARIANT=geth
+      - ETHEREUM_JSONRPC_HTTP_URL=http://node1:8545
+      - ETHEREUM_JSONRPC_WS_URL=ws://node1:8546
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/blockscout
+      - ECTO_USE_SSL=false
+      - COIN=VIBE
+      - NETWORK=VibeCoin Dev
+    depends_on:
+      - node1
+      - db
+
+  db:
+    image: postgres:13
+    container_name: vibecoin-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=blockscout
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
