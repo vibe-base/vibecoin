@@ -29,6 +29,7 @@ pub mod state_validation;
 pub mod state_pruning;
 pub mod state_sharding;
 pub mod state_sync;
+pub mod state_indexing;
 
 // Re-export common types
 pub use block_store::{Block, Hash, BlockStore};
@@ -48,3 +49,4 @@ pub use state_validation::{StateValidator, ValidationError, ValidationResult};
 pub use state_pruning::{StatePruner, PruningMode, PrunerConfig, PruningError, PruningResult, PruningStats};
 pub use state_sharding::{StateShardingManager, StateShard, ShardingStrategy, ShardConfig, ShardingError, ShardingResult};
 pub use state_sync::{StateSynchronizer, SyncMode, SyncConfig, SyncStatus, SyncProgress, SyncError, SyncResult, NetworkClient};
+pub use state_indexing::{StateIndexingManager, StateIndex, IndexType, IndexConfig, IndexingStatus, IndexingProgress, IndexingError, IndexingResult};
