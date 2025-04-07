@@ -11,6 +11,7 @@ pub mod types;
 pub mod config;
 pub mod engine;
 pub mod block_processor;
+pub mod engine_runner;
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -23,6 +24,7 @@ use crate::storage::kv_store::KVStore;
 use crate::network::types::message::NetMessage;
 use crate::consensus::config::ConsensusConfig;
 use crate::consensus::engine::ConsensusEngine;
+use crate::consensus::engine_runner::ConsensusEngineRunner;
 
 /// Start the consensus engine
 pub async fn start_consensus<S: KVStore + 'static>(
@@ -35,6 +37,19 @@ pub async fn start_consensus<S: KVStore + 'static>(
 ) -> Arc<ConsensusEngine> {
     // Create the consensus engine
     let engine = ConsensusEngine::new(
+        config.clone(),
+        kv_store.clone(),
+        block_store.clone(),
+        tx_store.clone(),
+        state_store.clone(),
+        network_tx.clone(),
+    );
+
+    // Create a reference to the engine for returning
+    let engine_arc = Arc::new(engine);
+
+    // Create a clone of the engine for the runner
+    let engine_for_runner = ConsensusEngine::new(
         config,
         kv_store,
         block_store,
@@ -43,20 +58,16 @@ pub async fn start_consensus<S: KVStore + 'static>(
         network_tx,
     );
 
-    // Start the engine
-    let engine_arc = Arc::new(engine);
-    let _engine_clone = engine_arc.clone();
+    // Create the engine runner
+    let runner = ConsensusEngineRunner::new(engine_for_runner);
 
-    // Create a mutable reference to the engine for running
-    let _engine_mut = engine_arc.clone();
+    // Start the engine in a separate task
     tokio::spawn(async move {
-        // We need to implement a way to run the engine without requiring &mut self
-        // For now, we'll just log that the engine is running
-        info!("Consensus engine started");
-        // TODO: Implement a way to run the engine without requiring &mut self
-        // engine_mut.run().await;
+        info!("Starting consensus engine...");
+        runner.run().await;
     });
 
+    // Return a reference to the engine
     engine_arc
 }
 

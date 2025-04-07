@@ -1,0 +1,59 @@
+[node]
+node_name = "vibecoin-node"
+data_dir = "./data/vibecoin"
+log_level = "info"
+enable_metrics = false
+metrics_port = 9100
+enable_api = true
+api_port = 8545
+api_host = "127.0.0.1"
+
+[network]
+listen_addr = "0.0.0.0"
+listen_port = 30333
+bootstrap_nodes = []
+max_peers = 50
+min_peers = 10
+discovery_interval = 30
+connection_timeout = 10
+handshake_timeout = 5
+enable_upnp = true
+enable_natpmp = true
+enable_dht = true
+dht_bootstrap_nodes = [
+    "/dns4/dht1.vibecoin.network/tcp/30334/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp",
+    "/dns4/dht2.vibecoin.network/tcp/30334/p2p/12D3KooWHdiAxVd8uMQR1hGWXccidmfCwLqcMpGwR6QcTP6QRMq9",
+]
+
+[consensus]
+chain_id = 1337
+enable_mining = true
+mining_threads = 4
+target_block_time = 5
+initial_difficulty = 100
+difficulty_adjustment_interval = 2016
+max_transactions_per_block = 10000
+max_block_size = 1048576
+max_gas_per_block = 10000000
+gas_price_minimum = 1
+enable_poh = true
+poh_tick_interval = 10
+poh_ticks_per_block = 1000
+
+[storage]
+db_path = "./data/vibecoin/db"
+cache_size = 512
+max_open_files = 1000
+write_buffer_size = 64
+max_write_buffer_number = 3
+enable_wal = true
+enable_statistics = false
+enable_compression = true
+compression_type = "lz4"
+enable_bloom_filters = true
+bloom_filter_bits_per_key = 10
+enable_auto_compaction = true
+compaction_style = "level"
+enable_pruning = false
+pruning_keep_recent = 10000
+pruning_interval = 100
