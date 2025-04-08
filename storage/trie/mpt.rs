@@ -59,21 +59,10 @@ impl MerklePatriciaTrie {
     }
 
     /// Get the root hash of the trie
-    pub fn root_hash(&mut self) -> Hash {
-        // Check if the root is cached
-        if let Some(hash) = self.node_cache.get(&self.root.hash()) {
-            return hash.hash();
-        }
-
-        // Calculate the hash
-        let hash = self.root.hash();
-
-        // Cache the result if the cache isn't too large
-        if self.node_cache.len() < self.max_cache_size {
-            self.node_cache.insert(hash, self.root.clone());
-        }
-
-        hash
+    pub fn root_hash(&self) -> Hash {
+        // Just return the hash of the root node
+        // We're not caching in the immutable version to avoid borrowing issues
+        self.root.hash()
     }
 
     /// Get a value from the trie
@@ -584,7 +573,7 @@ impl MerklePatriciaTrie {
     }
 
     /// Generate a proof for a key
-    pub fn generate_proof(&mut self, key: &[u8]) -> Proof {
+    pub fn generate_proof(&self, key: &[u8]) -> Proof {
         let nibbles = bytes_to_nibbles(key);
         let mut items = Vec::new();
         let value = self.get_proof_at(&self.root, &nibbles, 0, &mut items);
@@ -679,6 +668,11 @@ impl MerklePatriciaTrie {
 
     /// Verify a proof
     pub fn verify_proof(proof: &Proof) -> bool {
+        Self::verify_proof_with_root(proof, &proof.root_hash)
+    }
+
+    /// Verify a proof against a specific root hash
+    pub fn verify_proof_with_root(proof: &Proof, expected_root: &Hash) -> bool {
         // Check if the proof is empty
         if proof.items.is_empty() {
             return false;
@@ -691,8 +685,8 @@ impl MerklePatriciaTrie {
         let root_node = &proof.items[0].node;
         let calculated_root_hash = root_node.hash();
 
-        // Check that the root hash matches
-        if calculated_root_hash != proof.root_hash {
+        // Check that the root hash matches the expected root
+        if calculated_root_hash != *expected_root {
             return false;
         }
 
@@ -815,16 +809,7 @@ impl MerklePatriciaTrie {
         }
     }
 
-    /// Verify a proof against a specific root hash
-    pub fn verify_proof_with_root(proof: &Proof, root_hash: &[u8; 32]) -> bool {
-        // First check if the root hash matches
-        if &proof.root_hash != root_hash {
-            return false;
-        }
-
-        // Then verify the proof itself
-        Self::verify_proof(proof)
-    }
+    // This function has been replaced by the one above
 }
 
 #[cfg(test)]
