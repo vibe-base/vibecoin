@@ -45,3 +45,6 @@ vendor/
 .vibecoin/
 .vibecoin-testnet/
 .vibecoin-devnet/
+data/vibecoin/db/
+data/vibecoin/db/*
+config.toml
