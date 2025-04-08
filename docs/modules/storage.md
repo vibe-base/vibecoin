@@ -44,6 +44,15 @@ The PoH store manages Proof of History entries:
 - **PoHEntry Structure**: Represents a PoH entry
 - **Operations**: append_entry, get_entry, get_entry_by_hash, get_latest_sequence, get_entry_range
 
+### Object Store
+
+The object store manages Sui-style objects:
+
+- **Object Structure**: Represents a Sui-style object with unique ID and ownership
+- **Ownership Types**: Address-owned, Shared, or Immutable
+- **Operations**: put_object, get_object, delete_object, update_object, create_object
+- **Queries**: get_objects_by_owner, get_objects_by_type
+
 ## Implementation Details
 
 ```rust
@@ -78,6 +87,23 @@ pub struct PoHEntry {
     pub sequence: u64,
     pub timestamp: u64,
 }
+
+// Object Ownership
+pub enum Ownership {
+    Address([u8; 32]),
+    Shared,
+    Immutable,
+}
+
+// Sui-style Object
+pub struct Object {
+    pub id: [u8; 32],
+    pub owner: Ownership,
+    pub version: u64,
+    pub type_tag: String,
+    pub contents: Vec<u8>,
+    pub metadata: HashMap<String, String>,
+}
 ```
 
 ## Data Organization
@@ -93,6 +119,9 @@ The storage module uses prefixed keys to organize different types of data:
 - **Account States**: `state:addr:{address}`
 - **PoH Entries by Sequence**: `poh:seq:{sequence}`
 - **PoH Entries by Hash**: `poh:hash:{hash}`
+- **Objects by ID**: `objects:{object_id}`
+- **Objects by Owner**: `objects_by_owner:{owner}:{object_id}`
+- **Objects by Type**: `objects_by_type:{type_tag}:{object_id}`
 
 ## Performance Considerations
 

@@ -23,12 +23,12 @@ The storage module is built on top of RocksDB, a high-performance key-value stor
         └┬─────┬──────┬──────┬┘ │ └────────┬────────┘
          │     │      │      │  │          │
          ▼     ▼      ▼      ▼  │          ▼
-┌──────────┐ ┌───┐ ┌─────┐ ┌───┐│  ┌───────────────┐
-│BlockStore│ │Tx │ │State│ │PoH ││  │ Merkle Proofs │
-│          │ │Store│ │Store│ │Store││  │               │
-└────┬─────┘ └─┬─┘ └──┬──┘ └─┬─┘│  └───────┬───────┘
-     │         │      │      │  │          │
-     └─────────┴──────┴──────┴──┴──────────┘
+┌──────────┐ ┌───┐ ┌─────┐ ┌───┐ ┌───────┐│  ┌───────────────┐
+│BlockStore│ │Tx │ │State│ │PoH │ │Object ││  │ Merkle Proofs │
+│          │ │Store│ │Store│ │Store│ │Store ││  │               │
+└────┬─────┘ └─┬─┘ └──┬──┘ └─┬─┘ └───┬───┘│  └───────┬───────┘
+     │         │      │      │      │    │          │
+     └─────────┴──────┴──────┴──────┴────┴──────────┘
                            │
                            ▼
                   ┌─────────────────┐
@@ -82,6 +82,17 @@ Key features:
 - State root calculation
 - Account caching for performance
 
+### ObjectStore (object_store.rs)
+
+The ObjectStore implements a Sui-style object ID system, extending the account-based storage model into a more object-centric architecture.
+
+Key features:
+- Object creation, retrieval, and deletion
+- Different ownership models (Address-owned, Shared, Immutable)
+- Object versioning for tracking mutations
+- Efficient querying by owner and type
+- Object metadata management
+
 ### PoHStore (poh_store.rs)
 
 The PoHStore persists Proof of History entries, which are used for consensus.
@@ -115,6 +126,9 @@ The storage module uses a prefix-based schema for keys in RocksDB:
 | `tx:block:` | Transaction by block | `tx:block:1000:abcdef...` |
 | `state:account:` | Account state | `state:account:abcdef...` |
 | `state:root:` | State root | `state:root:latest` |
+| `objects:` | Object by ID | `objects:abcdef...` |
+| `objects_by_owner:` | Objects by owner | `objects_by_owner:abcdef...` |
+| `objects_by_type:` | Objects by type | `objects_by_type:Coin:abcdef...` |
 | `poh:seq:` | PoH entry by sequence | `poh:seq:1000` |
 
 ## Usage Examples
@@ -216,6 +230,46 @@ let block_txs = tx_store.get_transactions_by_block(5);
 
 // Update transaction status
 tx_store.update_transaction_status(&[1; 32], TransactionStatus::Confirmed).unwrap();
+```
+
+### Working with Objects
+
+```rust
+// Create an object store
+let kv_store = RocksDBStore::new(path);
+let object_store = ObjectStore::new(&kv_store);
+
+// Create an object
+let owner = Ownership::Address([1; 32]);
+let object = object_store.create_object(
+    owner,
+    "Coin".to_string(),
+    vec![1, 2, 3, 4],
+    None,
+).unwrap();
+
+// Retrieve an object by ID
+let retrieved = object_store.get_object(&object.id).unwrap();
+
+// Get objects by owner
+let owner_objects = object_store.get_objects_by_owner(&[1; 32]).unwrap();
+
+// Get objects by type
+let coins = object_store.get_objects_by_type("Coin").unwrap();
+
+// Update an object
+let updated = object_store.update_object(&object.id, |obj| {
+    obj.update_contents(vec![5, 6, 7, 8], obj.updated_at + 1, 1)
+}).unwrap();
+
+// Transfer ownership
+let recipient = [2; 32];
+let transferred = object_store.update_object(&object.id, |obj| {
+    obj.transfer_ownership(Ownership::Address(recipient), obj.updated_at + 1, 1)
+}).unwrap();
+
+// Delete an object
+object_store.delete_object(&object.id).unwrap();
 ```
 
 ## Performance Considerations

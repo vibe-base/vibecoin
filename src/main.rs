@@ -7,6 +7,7 @@ use structopt::StructOpt;
 use vibecoin::init_logger;
 use vibecoin::config::Config;
 use vibecoin::storage::{RocksDBStore, BlockStore, TxStore, StateStore, BatchOperationManager};
+use vibecoin::mempool::Mempool;
 use vibecoin::consensus::start_consensus;
 use vibecoin::consensus::config::ConsensusConfig;
 use vibecoin::network::{start_network, start_enhanced_network};
@@ -298,12 +299,15 @@ async fn main() {
         node_id: config.node.node_name.clone(),
     };
 
+    // Create a mempool
+    let mempool = Arc::new(Mempool::new().with_state_store(state_store.clone()));
+
     // Use enhanced network service with block synchronization
     let network = start_enhanced_network(
         network_config,
         Some(block_store.clone()),
         Some(tx_store.clone()),
-        None, // No mempool yet
+        Some(mempool.clone()),
         None, // No consensus yet
     ).await;
 

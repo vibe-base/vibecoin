@@ -20,6 +20,7 @@ Vibecoin is a revolutionary blockchain platform that combines the security of Pr
 - **High Throughput**: Process up to 50,000 transactions per second
 - **Low Latency**: Achieve finality in seconds, not minutes
 - **Gas-Based Economy**: Efficient resource allocation and fair pricing
+- **Object-Centric Architecture**: Sui-style object ID system for flexible data modeling
 - **Smart Contract Support**: Build powerful decentralized applications
 - **Developer-Friendly**: Comprehensive SDKs and documentation
 
@@ -109,6 +110,7 @@ Comprehensive documentation is available in the [docs](./docs) directory:
 ### Module Documentation
 - [Module Overview](./docs/modules/README.md)
 - [Storage Module](./docs/modules/storage.md)
+- [Object System Module](./docs/modules/object_system.md)
 - [Consensus Module](./docs/modules/consensus.md)
 - [Network Module](./docs/modules/network.md)
 - [Cryptography Module](./docs/modules/crypto.md)
@@ -141,6 +143,7 @@ The [Storage Module](./storage/README.md) provides persistent storage for the bl
 - **Block Store**: Storage and retrieval of blockchain blocks
 - **Transaction Store**: Management of transaction records
 - **Account State**: Handling of account balances and state
+- **Object Store**: Sui-style object ID system for object-centric architecture
 - **PoH Store**: Storage for Proof of History entries
 
 ### Cryptography Module

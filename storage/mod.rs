@@ -12,6 +12,10 @@
 //! - `state_store`: Storage for account states
 //! - `poh_store`: Storage for Proof of History entries
 //! - `trie`: Merkle Patricia Trie implementation for state verification (optional)
+//! - `object`: Sui-style object model implementation
+//! - `object_store`: Storage for Sui-style objects
+//! - `object_transaction`: Transaction types for object operations
+//! - `object_processor`: Processor for object transactions
 
 pub mod kv_store;
 pub mod block_store;
@@ -30,6 +34,10 @@ pub mod state_pruning;
 pub mod state_sharding;
 pub mod state_sync;
 pub mod state_indexing;
+pub mod object;
+pub mod object_store;
+pub mod object_transaction;
+pub mod object_processor;
 
 // Re-export common types
 pub use block_store::{Block, Hash, BlockStore};
@@ -50,3 +58,7 @@ pub use state_pruning::{StatePruner, PruningMode, PrunerConfig, PruningError, Pr
 pub use state_sharding::{StateShardingManager, StateShard, ShardingStrategy, ShardConfig, ShardingError, ShardingResult};
 pub use state_sync::{StateSynchronizer, SyncMode, SyncConfig, SyncStatus, SyncProgress, SyncError, SyncResult, NetworkClient};
 pub use state_indexing::{StateIndexingManager, StateIndex, IndexType, IndexConfig, IndexingStatus, IndexingProgress, IndexingError, IndexingResult};
+pub use object::{Object, ObjectId, Ownership, ObjectError};
+pub use object_store::{ObjectStore, ObjectStoreError};
+pub use object_transaction::{ObjectTransactionRecord, ObjectTransactionKind};
+pub use object_processor::{ObjectProcessor, ObjectProcessorError};

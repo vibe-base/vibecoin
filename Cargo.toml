@@ -80,3 +80,7 @@ path = "test_storage.rs"
 [[bin]]
 name = "query_blocks"
 path = "query_blocks.rs"
+
+[[bin]]
+name = "trigger_sync"
+path = "trigger_sync.rs"
