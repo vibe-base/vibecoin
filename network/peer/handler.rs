@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::net::{TcpStream, TcpSocket};
+use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 use log::{debug, error, info, warn};
@@ -53,7 +53,7 @@ pub enum PeerHandlerError {
 /// Handler for a single peer connection
 pub struct PeerHandler {
     /// TCP stream for the connection
-    stream: TcpStream,
+    stream: Option<TcpStream>,
 
     /// Peer ID
     peer_id: String,
@@ -111,7 +111,7 @@ impl PeerHandler {
         let (outgoing_tx, _) = mpsc::channel(100);
 
         let handler = Self {
-            stream,
+            stream: Some(stream),
             peer_id,
             peer_addr,
             local_node_info,
@@ -142,51 +142,8 @@ impl PeerHandler {
             // We can't clone TcpStream, so we need to take ownership and split it
             // This should only happen once during the handler's lifetime
 
-            // Create a dummy TcpStream for replacement
-            // We'll use a simpler approach that's compatible with tokio
-
-            // First try to create a dummy socket directly with tokio
-            let dummy_tokio_socket = match TcpStream::connect("127.0.0.1:1").await {
-                Ok(socket) => socket,
-                Err(_) => {
-                    // If that fails, try with std TcpStream and convert
-                    match std::net::TcpStream::connect("127.0.0.1:1") {
-                        Ok(std_socket) => {
-                            // Set to non-blocking mode (required for tokio)
-                            std_socket.set_nonblocking(true)
-                                .expect("Failed to set nonblocking");
-
-                            // Convert to tokio TcpStream
-                            match TcpStream::from_std(std_socket) {
-                                Ok(tokio_socket) => tokio_socket,
-                                Err(e) => {
-                                    error!("Failed to convert socket to tokio: {}", e);
-                                    // Last resort: create a dummy socket using a different approach
-                                    let socket = TcpSocket::new_v4()
-                                        .expect("Failed to create socket");
-
-                                    // Bind to a local address (required before connect)
-                                    socket.bind("127.0.0.1:0".parse().unwrap())
-                                        .expect("Failed to bind socket");
-
-                                    // We need to handle the Future returned by connect
-                                    // But we can't await here in a match arm, so we'll use a placeholder
-                                    // and handle the real connection elsewhere
-                                    error!("Using emergency dummy socket");
-                                    panic!("Cannot create tokio socket - this is a bug that needs fixing")
-                                }
-                            }
-                        },
-                        Err(_) => {
-                            error!("All socket creation methods failed");
-                            panic!("Cannot create any kind of socket - this is a bug that needs fixing")
-                        }
-                    }
-                }
-            };
-
-            // Replace the stream with our dummy
-            let stream = std::mem::replace(&mut self.stream, dummy_tokio_socket);
+            // Take ownership of the stream
+            let stream = self.stream.take().unwrap();
 
             // Split the stream
             let (read_half, write_half) = tokio::io::split(stream);
@@ -218,51 +175,8 @@ impl PeerHandler {
             // We can't clone TcpStream, so we need to take ownership and split it
             // This should only happen once during the handler's lifetime
 
-            // Create a dummy TcpStream for replacement
-            // We'll use a simpler approach that's compatible with tokio
-
-            // First try to create a dummy socket directly with tokio
-            let dummy_tokio_socket = match TcpStream::connect("127.0.0.1:1").await {
-                Ok(socket) => socket,
-                Err(_) => {
-                    // If that fails, try with std TcpStream and convert
-                    match std::net::TcpStream::connect("127.0.0.1:1") {
-                        Ok(std_socket) => {
-                            // Set to non-blocking mode (required for tokio)
-                            std_socket.set_nonblocking(true)
-                                .expect("Failed to set nonblocking");
-
-                            // Convert to tokio TcpStream
-                            match TcpStream::from_std(std_socket) {
-                                Ok(tokio_socket) => tokio_socket,
-                                Err(e) => {
-                                    error!("Failed to convert socket to tokio: {}", e);
-                                    // Last resort: create a dummy socket using a different approach
-                                    let socket = TcpSocket::new_v4()
-                                        .expect("Failed to create socket");
-
-                                    // Bind to a local address (required before connect)
-                                    socket.bind("127.0.0.1:0".parse().unwrap())
-                                        .expect("Failed to bind socket");
-
-                                    // We need to handle the Future returned by connect
-                                    // But we can't await here in a match arm, so we'll use a placeholder
-                                    // and handle the real connection elsewhere
-                                    error!("Using emergency dummy socket");
-                                    panic!("Cannot create tokio socket - this is a bug that needs fixing")
-                                }
-                            }
-                        },
-                        Err(_) => {
-                            error!("All socket creation methods failed");
-                            panic!("Cannot create any kind of socket - this is a bug that needs fixing")
-                        }
-                    }
-                }
-            };
-
-            // Replace the stream with our dummy
-            let stream = std::mem::replace(&mut self.stream, dummy_tokio_socket);
+            // Take ownership of the stream
+            let stream = self.stream.take().unwrap();
 
             // Split the stream
             let (read_half, write_half) = tokio::io::split(stream);
