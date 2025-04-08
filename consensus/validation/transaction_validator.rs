@@ -1,9 +1,11 @@
 use std::sync::Arc;
+use log::error;
 
 use crate::storage::tx_store::{TransactionRecord, TxStore};
 use crate::storage::state_store::StateStore;
 use crate::crypto::keys::VibePublicKey;
 use crate::crypto::signer::VibeSignature;
+use crate::mempool::types::TransactionRecord as MempoolTransactionRecord;
 
 /// Result of transaction validation
 #[derive(Debug, PartialEq)]
@@ -70,18 +72,49 @@ impl<'a> TransactionValidator<'a> {
         TransactionValidationResult::Valid
     }
 
+    /// Serialize a transaction for signature verification
+    fn serialize_for_signing(&self, tx: &TransactionRecord) -> Vec<u8> {
+        // Create a canonical representation for signing
+        let mut data = Vec::new();
+
+        // Add all transaction fields except signature
+        data.extend_from_slice(&tx.sender);
+        data.extend_from_slice(&tx.recipient);
+        data.extend_from_slice(&tx.value.to_be_bytes());
+        data.extend_from_slice(&tx.gas_price.to_be_bytes());
+        data.extend_from_slice(&tx.gas_limit.to_be_bytes());
+        data.extend_from_slice(&tx.nonce.to_be_bytes());
+        data.extend_from_slice(&tx.timestamp.to_be_bytes());
+
+        // Add optional data if present
+        if let Some(tx_data) = &tx.data {
+            data.extend_from_slice(tx_data);
+        }
+
+        data
+    }
+
     /// Verify the transaction signature
     fn verify_signature(
         &self,
-        _tx: &TransactionRecord,
-        _signature: &VibeSignature,
-        _sender_pubkey: &VibePublicKey,
+        tx: &TransactionRecord,
+        signature: &VibeSignature,
+        sender_pubkey: &VibePublicKey,
     ) -> bool {
-        // In a real implementation, we would:
-        // 1. Serialize the transaction
-        // 2. Verify the signature against the serialized data
-        // For now, we'll just return true
-        true
+        // Get the serialized transaction data for signing
+        let tx_data = self.serialize_for_signing(tx);
+
+        // Convert VibePublicKey to ed25519_dalek PublicKey
+        match sender_pubkey.to_dalek_pubkey() {
+            Ok(pubkey) => {
+                // Verify the signature using the crypto module
+                crate::crypto::signer::verify_signature(&tx_data, signature, &pubkey)
+            },
+            Err(e) => {
+                error!("Failed to convert public key: {:?}", e);
+                false
+            }
+        }
     }
 
     /// Check if the sender has sufficient balance

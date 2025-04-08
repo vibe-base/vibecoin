@@ -60,7 +60,20 @@ impl MerklePatriciaTrie {
 
     /// Get the root hash of the trie
     pub fn root_hash(&self) -> Hash {
-        self.root.hash()
+        // Check if the root is cached
+        if let Some(hash) = self.node_cache.get(&self.root.hash()) {
+            return hash.hash();
+        }
+
+        // Calculate the hash
+        let hash = self.root.hash();
+
+        // Cache the result if the cache isn't too large
+        if self.node_cache.len() < self.max_cache_size {
+            self.node_cache.insert(hash, self.root.clone());
+        }
+
+        hash
     }
 
     /// Get a value from the trie
@@ -576,12 +589,29 @@ impl MerklePatriciaTrie {
         let mut items = Vec::new();
         let value = self.get_proof_at(&self.root, &nibbles, 0, &mut items);
 
+        // Optimize the proof by removing unnecessary nodes
+        self.optimize_proof(&mut items);
+
         Proof {
             key: key.to_vec(),
             value,
             items,
             root_hash: self.root_hash(),
         }
+    }
+
+    /// Optimize a proof by removing unnecessary nodes
+    fn optimize_proof(&self, items: &mut Vec<ProofItem>) {
+        // Remove duplicate nodes
+        let mut seen_hashes = std::collections::HashSet::new();
+        items.retain(|item| {
+            let hash = item.node.hash();
+            let is_new = seen_hashes.insert(hash);
+            is_new
+        });
+
+        // Sort items by depth (key length) for more efficient verification
+        items.sort_by(|a, b| a.key.len().cmp(&b.key.len()));
     }
 
     /// Helper function to get a value and generate a proof
@@ -648,19 +678,16 @@ impl MerklePatriciaTrie {
     }
 
     /// Verify a proof
-    pub fn verify_proof(proof: &Proof, root_hash: &[u8; 32]) -> bool {
-        // First check if the root hash matches
-        if &proof.root_hash != root_hash {
-            return false;
-        }
-        let nibbles = bytes_to_nibbles(&proof.key);
-        let mut current_depth = 0;
-
-        // Start with the root node
+    pub fn verify_proof(proof: &Proof) -> bool {
+        // Check if the proof is empty
         if proof.items.is_empty() {
             return false;
         }
 
+        let nibbles = bytes_to_nibbles(&proof.key);
+        let mut current_depth = 0;
+
+        // Start with the root node
         let root_node = &proof.items[0].node;
         let calculated_root_hash = root_node.hash();
 
@@ -669,33 +696,27 @@ impl MerklePatriciaTrie {
             return false;
         }
 
-        // Verify the path through the trie
+        // Create a map of nodes by key for faster lookup
+        let mut node_map = std::collections::HashMap::new();
+        for item in &proof.items {
+            node_map.insert(item.key.clone(), &item.node);
+        }
+
+        // Verify the path through the trie using the node map
         let mut current_node = root_node;
 
-        for i in 0..proof.items.len() {
-            let item = &proof.items[i];
-
-            // Check that the key matches the expected depth
-            let expected_key = nibbles_to_bytes(&nibbles[..current_depth]);
-            if item.key != expected_key {
-                return false;
-            }
-
+        // Follow the path through the trie
+        while current_depth < nibbles.len() {
             match current_node {
                 Node::Empty => {
-                    // Empty node should only appear at the end
-                    return i == proof.items.len() - 1 && proof.value.is_none();
+                    // Empty node means the key doesn't exist
+                    return proof.value.is_none();
                 },
 
                 Node::Leaf { key, value } => {
-                    // Leaf node should only appear at the end
-                    if i != proof.items.len() - 1 {
-                        return false;
-                    }
-
                     // Check if the remaining key matches
-                    let (decoded_key, _) = compact_decode(key);
-                    if &decoded_key != &nibbles[current_depth..] {
+                    let remaining_key = &nibbles[current_depth..];
+                    if key != remaining_key {
                         return false;
                     }
 
@@ -706,37 +727,32 @@ impl MerklePatriciaTrie {
                     };
                 },
 
-                Node::Extension { key, child: _ } => {
-                    // Check if the key prefix matches
-                    let (decoded_key, _) = compact_decode(key);
-                    let prefix_len = decoded_key.len();
-
-                    if nibbles.len() - current_depth < prefix_len {
-                        // Key is too short
+                Node::Extension { key, child } => {
+                    // Check if the prefix matches
+                    if nibbles.len() - current_depth < key.len() {
                         return false;
                     }
 
-                    if &decoded_key != &nibbles[current_depth..current_depth + prefix_len] {
-                        // Prefix doesn't match
+                    let prefix = &nibbles[current_depth..current_depth + key.len()];
+                    if prefix != key {
                         return false;
                     }
 
-                    // Move to the next node
-                    current_depth += prefix_len;
-                    if i + 1 < proof.items.len() {
-                        current_node = &proof.items[i + 1].node;
+                    // Move to the child node
+                    current_depth += key.len();
+
+                    // Find the child node in the map
+                    let child_key = nibbles_to_bytes(&nibbles[..current_depth]);
+                    if let Some(next_node) = node_map.get(&child_key) {
+                        current_node = *next_node;
                     } else {
-                        return false; // Missing next node
+                        return false; // Missing node in proof
                     }
                 },
 
                 Node::Branch { children, value } => {
+                    // Check if we're at the end of the key
                     if current_depth == nibbles.len() {
-                        // We've reached the end of the key
-                        if i != proof.items.len() - 1 {
-                            return false;
-                        }
-
                         // Check if the value matches
                         return match (&proof.value, value) {
                             (Some(v), Some(node_v)) => v == node_v,
@@ -745,26 +761,69 @@ impl MerklePatriciaTrie {
                         };
                     }
 
+                    // Get the next nibble
                     let nibble = nibbles[current_depth] as usize;
 
-                    if let Some(_child) = &children[nibble] {
-                        // Move to the next node
+                    // Check if there's a child at this nibble
+                    if let Some(child) = &children[nibble] {
+                        // Move to the next nibble
                         current_depth += 1;
-                        if i + 1 < proof.items.len() {
-                            current_node = &proof.items[i + 1].node;
+
+                        // Find the child node in the map
+                        let child_key = nibbles_to_bytes(&nibbles[..current_depth]);
+                        if let Some(next_node) = node_map.get(&child_key) {
+                            current_node = *next_node;
                         } else {
-                            return false; // Missing next node
+                            return false; // Missing node in proof
                         }
                     } else {
-                        // No child at this nibble
-                        return false;
+                        // No child at this nibble, key doesn't exist
+                        return proof.value.is_none();
                     }
                 },
             }
         }
 
-        // We should have processed the entire key
-        current_depth == nibbles.len()
+        // If we've reached the end of the key, check the value
+        match current_node {
+            Node::Empty => {
+                // Empty node means the key doesn't exist
+                proof.value.is_none()
+            },
+
+            Node::Leaf { key, value } => {
+                // Check if the value matches
+                match &proof.value {
+                    Some(v) => v == value,
+                    None => false,
+                }
+            },
+
+            Node::Extension { key: _, child: _ } => {
+                // Extension node should not be at the end of the key
+                false
+            },
+
+            Node::Branch { children: _, value } => {
+                // Branch node at the end of the key should have a value
+                match (&proof.value, value) {
+                    (Some(v), Some(node_v)) => v == node_v,
+                    (None, None) => true,
+                    _ => false,
+                }
+            }
+        }
+    }
+
+    /// Verify a proof against a specific root hash
+    pub fn verify_proof_with_root(proof: &Proof, root_hash: &[u8; 32]) -> bool {
+        // First check if the root hash matches
+        if &proof.root_hash != root_hash {
+            return false;
+        }
+
+        // Then verify the proof itself
+        Self::verify_proof(proof)
     }
 }
 
@@ -948,6 +1007,7 @@ mod tests {
         // The light client only needs the proof and the root hash, not the full trie
         assert_eq!(proof.root_hash, root_hash);
         assert!(MerklePatriciaTrie::verify_proof(&proof));
+        assert!(MerklePatriciaTrie::verify_proof_with_root(&proof, &root_hash));
         assert_eq!(proof.value, Some(b"balance:200".to_vec()));
 
         // The light client can be sure that account2 has a balance of 200
