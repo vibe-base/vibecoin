@@ -9,7 +9,7 @@ use vibecoin::config::Config;
 use vibecoin::storage::{RocksDBStore, BlockStore, TxStore, StateStore, BatchOperationManager};
 use vibecoin::consensus::start_consensus;
 use vibecoin::consensus::config::ConsensusConfig;
-use vibecoin::network::start_network;
+use vibecoin::network::{start_network, start_enhanced_network};
 use vibecoin::network::NetworkConfig;
 use vibecoin::tools::genesis::generate_genesis;
 
@@ -298,7 +298,14 @@ async fn main() {
         node_id: config.node.node_name.clone(),
     };
 
-    let network = start_network(network_config).await;
+    // Use enhanced network service with block synchronization
+    let network = start_enhanced_network(
+        network_config,
+        Some(block_store.clone()),
+        Some(tx_store.clone()),
+        None, // No mempool yet
+        None, // No consensus yet
+    ).await;
 
     // Initialize consensus
     info!("Initializing consensus...");
