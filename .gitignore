@@ -48,3 +48,6 @@ vendor/
 data/vibecoin/db/
 data/vibecoin/db/*
 config.toml
+*.log
+vibecoin_debug.log
+vibecoin_trace.log
