@@ -12,7 +12,8 @@ api_host = "127.0.0.1"
 listen_addr = "0.0.0.0"
 listen_port = 30334
 bootstrap_nodes = [
-    "/dns4/155.138.221.38/tcp/30334/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
+    "/dns4/155.138.221.38/tcp/30334/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp",
+    "/ip4/108.61.193.45/tcp/30334"
 ]
 max_peers = 50
 min_peers = 10
@@ -25,6 +26,7 @@ enable_dht = true
 dht_bootstrap_nodes = [
     "/dns4/dht1.vibecoin.network/tcp/30334/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp",
     "/dns4/dht2.vibecoin.network/tcp/30334/p2p/12D3KooWHdiAxVd8uMQR1hGWXccidmfCwLqcMpGwR6QcTP6QRMq9",
+    "/ip4/108.61.193.45/tcp/30334"
 ]
 
 [consensus]

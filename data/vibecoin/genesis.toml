@@ -10,3 +10,6 @@ initial_accounts = {}
 # Network bootstrap nodes
 [[bootstrap_nodes]]
 address = "155.138.221.38:8765"
+
+[[bootstrap_nodes]]
+address = "108.61.193.45:30334"
