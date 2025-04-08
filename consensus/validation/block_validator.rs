@@ -263,21 +263,30 @@ impl<'a> BlockValidator<'a> {
             }
         };
 
-        // Create a PoH entry for verification
+        // Calculate the expected PoH hash
+        let seq_diff = block.poh_seq - prev_block.poh_seq;
+        let event_data = seq_diff.to_be_bytes();
+        let combined = [&prev_block.hash[..], &event_data[..]].concat();
+        let expected_poh_hash = crate::crypto::hash::sha256(&combined);
+
+        // Compare with the block's PoH hash
+        if block.poh_hash != expected_poh_hash {
+            error!("PoH hash mismatch: expected {}, got {}",
+                   hex::encode(&expected_poh_hash), hex::encode(&block.poh_hash));
+            return false;
+        }
+
+        // Create a PoH entry for verification (for additional checks)
         let poh_entry = crate::storage::poh_store::PoHEntry {
             hash: block.poh_hash,
             sequence: block.poh_seq,
             timestamp: block.timestamp,
         };
 
-        // Convert the sequence difference to bytes for the event data
-        let seq_diff = block.poh_seq - prev_block.poh_seq;
-        let event_data = seq_diff.to_be_bytes();
-
-        // Verify the PoH sequence
+        // Verify the PoH sequence using the verifier
         if !self.poh_verifier.verify_event(
             &poh_entry,
-            &prev_block.poh_hash,
+            &prev_block.hash,
             &event_data
         ) {
             error!("Invalid PoH sequence: prev_seq={}, curr_seq={}",

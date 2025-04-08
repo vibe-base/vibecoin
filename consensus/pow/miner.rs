@@ -172,11 +172,9 @@ impl PoWMiner {
 
             // Check if the hash meets the target
             if target.is_met_by(&hash) {
-                // Get the current PoH hash
-                let poh_hash = hash; // In a real implementation, we would get this from the PoH generator
-
                 // Create the block
-                let block = template.to_block(nonce, poh_hash);
+                // The to_block method will generate the correct PoH hash
+                let block = template.to_block(nonce, hash);
                 return Some((block, nonce));
             }
         }

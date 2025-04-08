@@ -114,6 +114,16 @@ impl<'a> BlockProducer<'a> {
             (poh_gen.sequence(), poh_gen.current_hash())
         };
 
+        // Get the previous block's PoH sequence number if this is not the genesis block
+        let prev_poh_seq = if self.chain_state.height > 0 {
+            match self.block_store.get_block_by_hash(&self.chain_state.tip_hash) {
+                Ok(Some(prev_block)) => prev_block.poh_seq,
+                _ => 0, // Default to 0 if we can't get the previous block
+            }
+        } else {
+            0 // Genesis block has no previous block
+        };
+
         // Create the block template
         BlockTemplate {
             height: self.chain_state.height + 1,
@@ -123,6 +133,7 @@ impl<'a> BlockProducer<'a> {
             state_root,
             tx_root, // Use the calculated transaction root
             poh_seq, // Use the current PoH sequence
+            prev_poh_seq, // Use the previous block's PoH sequence
             poh_hash, // Use the current PoH hash
             target: Target::from_difficulty(self.chain_state.total_difficulty),
             total_difficulty: self.chain_state.total_difficulty as u128,
