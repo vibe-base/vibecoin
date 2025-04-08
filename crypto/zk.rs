@@ -3,6 +3,9 @@ use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::traits::MultiscalarMul;
 use merlin::Transcript;
 use rand::rngs::OsRng;
+use rand::RngCore;
+use rand_chacha::ChaChaRng;
+use rand_core::SeedableRng;
 use serde::{Serialize, Deserialize};
 use sha2::{Sha512, Digest};
 
@@ -10,13 +13,12 @@ use crate::crypto::keys;
 use crate::crypto::signer;
 
 /// A Pedersen commitment
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct PedersenCommitment {
     /// The commitment value
     pub commitment: CompressedRistretto,
 
     /// The blinding factor (kept secret)
-    #[serde(skip)]
     pub blinding: Option<Scalar>,
 }
 
@@ -25,7 +27,12 @@ impl PedersenCommitment {
     pub fn commit(value: u64, blinding_factor: Option<Scalar>) -> Self {
         // Use the provided blinding factor or generate a random one
         let blinding = blinding_factor.unwrap_or_else(|| {
-            let mut rng = OsRng;
+            // Create a seed from OsRng
+            let mut seed = [0u8; 32];
+            OsRng.fill_bytes(&mut seed);
+
+            // Use the seed to create a deterministic RNG that works with curve25519-dalek
+            let mut rng = rand_chacha::ChaChaRng::from_seed(seed);
             Scalar::random(&mut rng)
         });
 
@@ -88,7 +95,7 @@ impl PedersenCommitment {
 }
 
 /// A range proof that proves a value is within a range [0, 2^bits)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct RangeProof {
     /// The commitment to the value
     pub commitment: CompressedRistretto,
@@ -166,7 +173,7 @@ impl RangeProof {
 }
 
 /// A confidential transaction that hides the transaction amount
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct ConfidentialTransaction {
     /// Sender address
     pub sender: [u8; 32],

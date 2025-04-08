@@ -1,9 +1,10 @@
 use blst::min_pk::{SecretKey, PublicKey, Signature};
-use blst::min_sig::{AggregateSignature, AggregatePublicKey};
+use blst::{BLST_ERROR, Pairing};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Serialize, Deserialize};
 use std::fmt;
+use std::convert::TryFrom;
 
 /// BLS keypair for signing and verification
 pub struct BlsKeypair {
@@ -53,7 +54,9 @@ impl BlsSignature {
     /// Verify the signature against a message and public key
     pub fn verify(&self, message: &[u8], public_key: &PublicKey) -> bool {
         let dst = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
-        self.0.verify(message, dst, &[], public_key)
+        // The verify method has changed in newer versions of blst
+        let result = self.0.verify(false, message, dst, &[], public_key, false);
+        result == BLST_ERROR::BLST_SUCCESS
     }
 
     /// Serialize the signature to bytes
@@ -101,13 +104,14 @@ pub fn aggregate_signatures(signatures: &[BlsSignature]) -> Option<BlsSignature>
         return None;
     }
 
-    let mut agg_sig = AggregateSignature::new();
+    // In newer blst versions, we need to use the Signature::aggregate method
+    let sig_refs: Vec<&Signature> = signatures.iter().map(|s| &s.0).collect();
+    let agg_sig = Signature::aggregate(&sig_refs, false);
 
-    for sig in signatures {
-        agg_sig.add(&sig.0);
+    match agg_sig {
+        Ok(sig) => Some(BlsSignature(sig)),
+        Err(_) => None,
     }
-
-    Some(BlsSignature(agg_sig.to_signature()))
 }
 
 /// Aggregate multiple BLS public keys into a single public key
@@ -116,13 +120,14 @@ pub fn aggregate_public_keys(public_keys: &[PublicKey]) -> Option<PublicKey> {
         return None;
     }
 
-    let mut agg_pk = AggregatePublicKey::new();
+    // In newer blst versions, we need to use the PublicKey::aggregate method
+    let pk_refs: Vec<&PublicKey> = public_keys.iter().collect();
+    let agg_pk = PublicKey::aggregate(&pk_refs, false);
 
-    for pk in public_keys {
-        agg_pk.add(pk);
+    match agg_pk {
+        Ok(pk) => Some(pk),
+        Err(_) => None,
     }
-
-    Some(agg_pk.to_public_key())
 }
 
 /// Verify an aggregate signature against multiple messages and public keys
@@ -137,8 +142,19 @@ pub fn verify_aggregate_signature(
 
     let dst = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
 
+    // Create a pairing context for verification
+    let mut ctx = Pairing::new(false, dst);
+
+    // Add each message and public key to the context
+    for (i, (msg, pk)) in messages.iter().zip(public_keys.iter()).enumerate() {
+        if let Err(_) = ctx.aggregate(&pk, false, *msg, &[]) {
+            return false;
+        }
+    }
+
     // Verify the aggregate signature
-    signature.0.aggregate_verify(messages, dst, public_keys)
+    let result = ctx.verify(false, &signature.0);
+    result == BLST_ERROR::BLST_SUCCESS
 }
 
 #[cfg(test)]

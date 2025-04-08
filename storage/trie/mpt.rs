@@ -584,7 +584,7 @@ impl MerklePatriciaTrie {
     }
 
     /// Generate a proof for a key
-    pub fn generate_proof(&self, key: &[u8]) -> Proof {
+    pub fn generate_proof(&mut self, key: &[u8]) -> Proof {
         let nibbles = bytes_to_nibbles(key);
         let mut items = Vec::new();
         let value = self.get_proof_at(&self.root, &nibbles, 0, &mut items);
