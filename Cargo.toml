@@ -65,3 +65,7 @@ path = "src/main.rs"
 [[bin]]
 name = "test_storage"
 path = "test_storage.rs"
+
+[[bin]]
+name = "query_blocks"
+path = "query_blocks.rs"
