@@ -10,7 +10,7 @@ api_host = "127.0.0.1"
 
 [network]
 listen_addr = "0.0.0.0"
-listen_port = 30333
+listen_port = 30334
 bootstrap_nodes = []
 max_peers = 50
 min_peers = 10
