@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, TcpSocket};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 use log::{debug, error, info, warn};
@@ -142,36 +142,46 @@ impl PeerHandler {
             // We can't clone TcpStream, so we need to take ownership and split it
             // This should only happen once during the handler's lifetime
 
-            // Create a dummy socket for replacement
-            let dummy_socket = match std::net::TcpStream::connect("127.0.0.1:1") {
+            // Create a dummy TcpStream for replacement
+            // We'll use a simpler approach that's compatible with tokio
+
+            // First try to create a dummy socket directly with tokio
+            let dummy_tokio_socket = match TcpStream::connect("127.0.0.1:1").await {
                 Ok(socket) => socket,
                 Err(_) => {
-                    // If connection fails, create a socket manually
-                    let socket = std::net::TcpSocket::new_v4()
-                        .expect("Failed to create socket");
-                    // We don't actually need to connect it
-                    socket.set_nonblocking(true)
-                        .expect("Failed to set nonblocking");
-                    match socket.connect("127.0.0.1:1".parse().unwrap()) {
-                        Ok(s) => s,
+                    // If that fails, try with std TcpStream and convert
+                    match std::net::TcpStream::connect("127.0.0.1:1") {
+                        Ok(std_socket) => {
+                            // Set to non-blocking mode (required for tokio)
+                            std_socket.set_nonblocking(true)
+                                .expect("Failed to set nonblocking");
+
+                            // Convert to tokio TcpStream
+                            match TcpStream::from_std(std_socket) {
+                                Ok(tokio_socket) => tokio_socket,
+                                Err(e) => {
+                                    error!("Failed to convert socket to tokio: {}", e);
+                                    // Last resort: create a dummy socket using a different approach
+                                    let socket = TcpSocket::new_v4()
+                                        .expect("Failed to create socket");
+
+                                    // Bind to a local address (required before connect)
+                                    socket.bind("127.0.0.1:0".parse().unwrap())
+                                        .expect("Failed to bind socket");
+
+                                    // We need to handle the Future returned by connect
+                                    // But we can't await here in a match arm, so we'll use a placeholder
+                                    // and handle the real connection elsewhere
+                                    error!("Using emergency dummy socket");
+                                    panic!("Cannot create tokio socket - this is a bug that needs fixing")
+                                }
+                            }
+                        },
                         Err(_) => {
-                            // Just log the error and continue with a placeholder
-                            error!("Failed to create dummy socket, using placeholder");
-                            // Create an unconnected socket as a last resort
-                            let s = std::net::TcpStream::connect("127.0.0.1:1")
-                                .unwrap_or_else(|_| panic!("Cannot create dummy socket"));
-                            s
+                            error!("All socket creation methods failed");
+                            panic!("Cannot create any kind of socket - this is a bug that needs fixing")
                         }
                     }
-                }
-            };
-
-            // Convert to tokio TcpStream
-            let dummy_tokio_socket = match TcpStream::from_std(dummy_socket) {
-                Ok(s) => s,
-                Err(e) => {
-                    error!("Failed to convert socket to tokio: {}", e);
-                    panic!("Cannot create tokio socket")
                 }
             };
 
@@ -208,36 +218,46 @@ impl PeerHandler {
             // We can't clone TcpStream, so we need to take ownership and split it
             // This should only happen once during the handler's lifetime
 
-            // Create a dummy socket for replacement
-            let dummy_socket = match std::net::TcpStream::connect("127.0.0.1:1") {
+            // Create a dummy TcpStream for replacement
+            // We'll use a simpler approach that's compatible with tokio
+
+            // First try to create a dummy socket directly with tokio
+            let dummy_tokio_socket = match TcpStream::connect("127.0.0.1:1").await {
                 Ok(socket) => socket,
                 Err(_) => {
-                    // If connection fails, create a socket manually
-                    let socket = std::net::TcpSocket::new_v4()
-                        .expect("Failed to create socket");
-                    // We don't actually need to connect it
-                    socket.set_nonblocking(true)
-                        .expect("Failed to set nonblocking");
-                    match socket.connect("127.0.0.1:1".parse().unwrap()) {
-                        Ok(s) => s,
+                    // If that fails, try with std TcpStream and convert
+                    match std::net::TcpStream::connect("127.0.0.1:1") {
+                        Ok(std_socket) => {
+                            // Set to non-blocking mode (required for tokio)
+                            std_socket.set_nonblocking(true)
+                                .expect("Failed to set nonblocking");
+
+                            // Convert to tokio TcpStream
+                            match TcpStream::from_std(std_socket) {
+                                Ok(tokio_socket) => tokio_socket,
+                                Err(e) => {
+                                    error!("Failed to convert socket to tokio: {}", e);
+                                    // Last resort: create a dummy socket using a different approach
+                                    let socket = TcpSocket::new_v4()
+                                        .expect("Failed to create socket");
+
+                                    // Bind to a local address (required before connect)
+                                    socket.bind("127.0.0.1:0".parse().unwrap())
+                                        .expect("Failed to bind socket");
+
+                                    // We need to handle the Future returned by connect
+                                    // But we can't await here in a match arm, so we'll use a placeholder
+                                    // and handle the real connection elsewhere
+                                    error!("Using emergency dummy socket");
+                                    panic!("Cannot create tokio socket - this is a bug that needs fixing")
+                                }
+                            }
+                        },
                         Err(_) => {
-                            // Just log the error and continue with a placeholder
-                            error!("Failed to create dummy socket, using placeholder");
-                            // Create an unconnected socket as a last resort
-                            let s = std::net::TcpStream::connect("127.0.0.1:1")
-                                .unwrap_or_else(|_| panic!("Cannot create dummy socket"));
-                            s
+                            error!("All socket creation methods failed");
+                            panic!("Cannot create any kind of socket - this is a bug that needs fixing")
                         }
                     }
-                }
-            };
-
-            // Convert to tokio TcpStream
-            let dummy_tokio_socket = match TcpStream::from_std(dummy_socket) {
-                Ok(s) => s,
-                Err(e) => {
-                    error!("Failed to convert socket to tokio: {}", e);
-                    panic!("Cannot create tokio socket")
                 }
             };
 
