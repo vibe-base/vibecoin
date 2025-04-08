@@ -56,22 +56,22 @@ pub struct Config {
 impl Config {
     /// Load configuration from a file
     pub fn from_file(path: &Path) -> Result<Self, ConfigError>;
-    
+
     /// Load configuration from command-line arguments
     pub fn from_args() -> Result<Self, ConfigError>;
-    
+
     /// Load configuration from environment variables
     pub fn from_env() -> Result<Self, ConfigError>;
-    
+
     /// Load configuration from multiple sources with proper precedence
     pub fn load() -> Result<Self, ConfigError>;
-    
+
     /// Save configuration to a file
     pub fn save(&self, path: &Path) -> Result<(), ConfigError>;
-    
+
     /// Generate a default configuration
     pub fn default() -> Self;
-    
+
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), ConfigError>;
 }
@@ -165,16 +165,16 @@ api_port = 8545
 # Metrics settings
 metrics_enabled = true
 metrics_host = "127.0.0.1"
-metrics_port = 9615
+metrics_port = 9100
 
 [network]
 # P2P settings
 listen_addr = "0.0.0.0"
-listen_port = 30333
+listen_port = 30334
 # Bootstrap nodes
 bootstrap_nodes = [
-    "/dns4/bootstrap1.vibecoin.network/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp",
-    "/dns4/bootstrap2.vibecoin.network/tcp/30333/p2p/12D3KooWHdiAxVd8uMQR1hGWXccidmfCwLqcMpGwR6QcTP6QRMq9"
+    "/dns4/bootstrap1.vibecoin.network/tcp/30334/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp",
+    "/dns4/bootstrap2.vibecoin.network/tcp/30334/p2p/12D3KooWHdiAxVd8uMQR1hGWXccidmfCwLqcMpGwR6QcTP6QRMq9"
 ]
 # Maximum number of peers
 max_peers = 50
@@ -237,7 +237,7 @@ Command-line arguments use the following format:
 
 For example:
 - `--node-name my-node` sets the node name
-- `--network-listen-port 30333` sets the network listen port
+- `--network-listen-port 30334` sets the network listen port
 - `--consensus-enable-mining true` sets whether mining is enabled
 
 Some common options have shortcuts:

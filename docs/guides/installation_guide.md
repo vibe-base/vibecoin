@@ -34,7 +34,7 @@ This guide provides comprehensive instructions for installing, configuring, and 
 
 ### Software Requirements
 
-- **Operating System**: 
+- **Operating System**:
   - Linux (Ubuntu 20.04+, Debian 11+, or similar)
   - macOS (10.15+)
   - Windows 10/11 with WSL2
@@ -48,10 +48,10 @@ This guide provides comprehensive instructions for installing, configuring, and 
 
 ### Network Requirements
 
-- **Ports**: 
-  - P2P: 30333 (TCP)
+- **Ports**:
+  - P2P: 30334 (TCP)
   - RPC: 8545 (TCP)
-  - Metrics: 9615 (TCP, optional)
+  - Metrics: 9100 (TCP, optional)
 - **Firewall**: Ensure the above ports are open for incoming connections
 
 ## Installation Methods
@@ -214,7 +214,7 @@ api_port = 8545
 # Metrics settings
 metrics_enabled = true
 metrics_host = "127.0.0.1"
-metrics_port = 9615
+metrics_port = 9100
 ```
 
 #### Network Section
@@ -223,11 +223,11 @@ metrics_port = 9615
 [network]
 # P2P settings
 listen_addr = "0.0.0.0"
-listen_port = 30333
+listen_port = 30334
 # Bootstrap nodes
 bootstrap_nodes = [
-    "/dns4/bootstrap1.vibecoin.network/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp",
-    "/dns4/bootstrap2.vibecoin.network/tcp/30333/p2p/12D3KooWHdiAxVd8uMQR1hGWXccidmfCwLqcMpGwR6QcTP6QRMq9"
+    "/dns4/bootstrap1.vibecoin.network/tcp/30334/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp",
+    "/dns4/bootstrap2.vibecoin.network/tcp/30334/p2p/12D3KooWHdiAxVd8uMQR1hGWXccidmfCwLqcMpGwR6QcTP6QRMq9"
 ]
 # Maximum number of peers
 max_peers = 50
@@ -463,7 +463,7 @@ VibeCoin exposes metrics via Prometheus:
 [node]
 metrics_enabled = true
 metrics_host = "127.0.0.1"
-metrics_port = 9615
+metrics_port = 9100
 ```
 
 You can visualize these metrics using Grafana.

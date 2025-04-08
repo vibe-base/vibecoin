@@ -85,7 +85,7 @@ docker-compose -f docker-compose.testnet.yml up -d
 | `--mining-threads` | Mining threads | `4` |
 | `--api-port` | Port for JSON-RPC server | `8545` |
 | `--api-host` | Host for JSON-RPC server | `127.0.0.1` |
-| `--listen-port` | Port for P2P communication | `30333` |
+| `--listen-port` | Port for P2P communication | `30334` |
 | `--listen-addr` | Address for P2P communication | `0.0.0.0` |
 
 ## 📚 Documentation
