@@ -19,11 +19,11 @@ async fn main() {
     // Create a broadcaster
     let broadcaster = Arc::new(PeerBroadcaster::new());
 
-    // Create a RocksDB store
-    let kv_store = Arc::new(RocksDBStore::new(Path::new("./data/vibecoin/db")).expect("Failed to open RocksDB"));
+    // Create a RocksDB store with 'static lifetime
+    let kv_store = Box::leak(Box::new(RocksDBStore::new(Path::new("./data/vibecoin/db")).expect("Failed to open RocksDB")));
 
     // Create a block store
-    let block_store = Arc::new(BlockStore::new(&*kv_store));
+    let block_store = Arc::new(BlockStore::new(kv_store));
 
     // Create a sync service
     let sync_service = SyncService::new(
