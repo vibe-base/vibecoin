@@ -12,7 +12,8 @@
 
 ## 🚀 Overview
 
-Vibecoin is a revolutionary blockchain platform that combines the security of Proof-of-Work with the speed of Solana-style Proof of History. Built with a gas-based architecture, Vibecoin enables highly scalable, efficient, and truly decentralized applications for the future.
+Vibecoin is a revolutionary blockchain platform that combines the security of Proof-of-Work with the speed of Solana-style Proof of History. Built on a gas-based architecture similar to Ethereum, and enhanced with Sui-style parallel processing, Vibecoin enables highly scalable, efficient, and truly decentralized applications. Its ability to execute transactions in parallel dramatically increases throughput and reduces latency, making Vibecoin ideal for next-generation dApps and real-world adoption.
+
 
 ## ✨ Key Features
 
@@ -23,6 +24,8 @@ Vibecoin is a revolutionary blockchain platform that combines the security of Pr
 - **Object-Centric Architecture**: Sui-style object ID system for flexible data modeling
 - **Smart Contract Support**: Build powerful decentralized applications
 - **Developer-Friendly**: Comprehensive SDKs and documentation
+- **Parallel Execution**: Sui-style architecture enables simultaneous transaction processing, boosting scalability and minimizing congestion.
+
 
 ## 🛠️ Getting Started
 
