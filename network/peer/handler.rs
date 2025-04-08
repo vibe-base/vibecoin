@@ -141,8 +141,46 @@ impl PeerHandler {
         if self.writer.is_none() {
             // We can't clone TcpStream, so we need to take ownership and split it
             // This should only happen once during the handler's lifetime
-            let stream = std::mem::replace(&mut self.stream, TcpStream::from_std(std::net::TcpStream::connect("0.0.0.0:0").unwrap()).unwrap());
+
+            // Create a dummy socket for replacement
+            let dummy_socket = match std::net::TcpStream::connect("127.0.0.1:1") {
+                Ok(socket) => socket,
+                Err(_) => {
+                    // If connection fails, create a socket manually
+                    let socket = std::net::TcpSocket::new_v4()
+                        .expect("Failed to create socket");
+                    // We don't actually need to connect it
+                    socket.set_nonblocking(true)
+                        .expect("Failed to set nonblocking");
+                    match socket.connect("127.0.0.1:1".parse().unwrap()) {
+                        Ok(s) => s,
+                        Err(_) => {
+                            // Just log the error and continue with a placeholder
+                            error!("Failed to create dummy socket, using placeholder");
+                            // Create an unconnected socket as a last resort
+                            let s = std::net::TcpStream::connect("127.0.0.1:1")
+                                .unwrap_or_else(|_| panic!("Cannot create dummy socket"));
+                            s
+                        }
+                    }
+                }
+            };
+
+            // Convert to tokio TcpStream
+            let dummy_tokio_socket = match TcpStream::from_std(dummy_socket) {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Failed to convert socket to tokio: {}", e);
+                    panic!("Cannot create tokio socket")
+                }
+            };
+
+            // Replace the stream with our dummy
+            let stream = std::mem::replace(&mut self.stream, dummy_tokio_socket);
+
+            // Split the stream
             let (read_half, write_half) = tokio::io::split(stream);
+
             // Convert to the generic AsyncRead/AsyncWrite types
             self.reader = Some(FramedReader::new(read_half));
             self.writer = Some(FramedWriter::new(write_half));
@@ -169,8 +207,46 @@ impl PeerHandler {
         if self.reader.is_none() {
             // We can't clone TcpStream, so we need to take ownership and split it
             // This should only happen once during the handler's lifetime
-            let stream = std::mem::replace(&mut self.stream, TcpStream::from_std(std::net::TcpStream::connect("0.0.0.0:0").unwrap()).unwrap());
+
+            // Create a dummy socket for replacement
+            let dummy_socket = match std::net::TcpStream::connect("127.0.0.1:1") {
+                Ok(socket) => socket,
+                Err(_) => {
+                    // If connection fails, create a socket manually
+                    let socket = std::net::TcpSocket::new_v4()
+                        .expect("Failed to create socket");
+                    // We don't actually need to connect it
+                    socket.set_nonblocking(true)
+                        .expect("Failed to set nonblocking");
+                    match socket.connect("127.0.0.1:1".parse().unwrap()) {
+                        Ok(s) => s,
+                        Err(_) => {
+                            // Just log the error and continue with a placeholder
+                            error!("Failed to create dummy socket, using placeholder");
+                            // Create an unconnected socket as a last resort
+                            let s = std::net::TcpStream::connect("127.0.0.1:1")
+                                .unwrap_or_else(|_| panic!("Cannot create dummy socket"));
+                            s
+                        }
+                    }
+                }
+            };
+
+            // Convert to tokio TcpStream
+            let dummy_tokio_socket = match TcpStream::from_std(dummy_socket) {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Failed to convert socket to tokio: {}", e);
+                    panic!("Cannot create tokio socket")
+                }
+            };
+
+            // Replace the stream with our dummy
+            let stream = std::mem::replace(&mut self.stream, dummy_tokio_socket);
+
+            // Split the stream
             let (read_half, write_half) = tokio::io::split(stream);
+
             // Convert to the generic AsyncRead/AsyncWrite types
             self.reader = Some(FramedReader::new(read_half));
             self.writer = Some(FramedWriter::new(write_half));
