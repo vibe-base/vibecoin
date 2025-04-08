@@ -5,7 +5,7 @@ use crate::storage::tx_store::{TransactionRecord, TxStore};
 use crate::storage::state_store::StateStore;
 use crate::crypto::keys::VibePublicKey;
 use crate::crypto::signer::VibeSignature;
-use crate::mempool::types::TransactionRecord as MempoolTransactionRecord;
+// use crate::mempool::types::TransactionRecord as MempoolTransactionRecord;
 
 /// Result of transaction validation
 #[derive(Debug, PartialEq)]

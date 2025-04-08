@@ -399,7 +399,7 @@ impl<'a> StateManager<'a> {
             .map_err(|e| StateStoreError::SerializationError(e.to_string()))?;
 
         // Verify the proof
-        Ok(MerklePatriciaTrie::verify_proof(&proof, root_hash))
+        Ok(MerklePatriciaTrie::verify_proof_with_root(&proof, root_hash))
     }
 
     /// Apply a block to the state

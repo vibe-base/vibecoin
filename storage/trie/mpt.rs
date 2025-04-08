@@ -59,7 +59,7 @@ impl MerklePatriciaTrie {
     }
 
     /// Get the root hash of the trie
-    pub fn root_hash(&self) -> Hash {
+    pub fn root_hash(&mut self) -> Hash {
         // Check if the root is cached
         if let Some(hash) = self.node_cache.get(&self.root.hash()) {
             return hash.hash();
@@ -727,7 +727,7 @@ impl MerklePatriciaTrie {
                     };
                 },
 
-                Node::Extension { key, child } => {
+                Node::Extension { key, child: _ } => {
                     // Check if the prefix matches
                     if nibbles.len() - current_depth < key.len() {
                         return false;
@@ -765,7 +765,7 @@ impl MerklePatriciaTrie {
                     let nibble = nibbles[current_depth] as usize;
 
                     // Check if there's a child at this nibble
-                    if let Some(child) = &children[nibble] {
+                    if let Some(_child) = &children[nibble] {
                         // Move to the next nibble
                         current_depth += 1;
 
@@ -791,7 +791,7 @@ impl MerklePatriciaTrie {
                 proof.value.is_none()
             },
 
-            Node::Leaf { key, value } => {
+            Node::Leaf { key: _, value } => {
                 // Check if the value matches
                 match &proof.value {
                     Some(v) => v == value,

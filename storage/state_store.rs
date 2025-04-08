@@ -624,7 +624,7 @@ impl<'a> StateStore<'a> {
         }
 
         // Verify the proof
-        MerklePatriciaTrie::verify_proof(proof, expected_root)
+        MerklePatriciaTrie::verify_proof_with_root(proof, expected_root)
     }
 
     /// Flush all pending writes to disk
